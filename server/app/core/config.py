@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Fix OpenMP conflict - must be set before torch imports
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+
 
 class Settings:
 	# Core settings

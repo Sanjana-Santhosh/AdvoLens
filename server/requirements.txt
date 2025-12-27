@@ -5,3 +5,11 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 alembic==1.13.1
 geoalchemy2==0.14.3
+python-multipart==0.0.9
+transformers==4.46.0
+torch==2.2.2
+torchvision==0.17.2
+faiss-cpu==1.8.0
+pillow==10.3.0
+numpy==1.26.4
+requests==2.32.3
