@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 import shutil
 import os
 
@@ -10,6 +11,7 @@ from app.crud import issue as crud_issue
 from app.ml.clip_service import clip_service
 from app.ml.faiss_manager import faiss_manager
 from app.ml.gemini_service import gemini_service
+from app.services.notification import notify_issue_resolved, notify_issue_reopened
 
 
 router = APIRouter(tags=["issues"])
@@ -17,6 +19,11 @@ router = APIRouter(tags=["issues"])
 # Directory to save uploaded images locally (for now)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+class StatusUpdate(BaseModel):
+    """Schema for updating issue status"""
+    status: str
 
 
 @router.post("/", response_model=IssueResponse)
@@ -112,3 +119,35 @@ def get_duplicates(
             duplicates.append(dup_issue)
 
     return duplicates
+
+
+@router.patch("/{issue_id}/status", response_model=IssueResponse)
+def update_issue_status(
+    issue_id: int,
+    status_update: StatusUpdate,
+    db: Session = Depends(get_db),
+):
+    """
+    Update the status of an issue (e.g., Open -> Resolved).
+    In a real app, this would verify admin role first.
+    """
+    # Validate status value
+    valid_statuses = ["Open", "Resolved", "In Progress", "Closed"]
+    if status_update.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    # Update the issue
+    updated_issue = crud_issue.update_status(db, issue_id, status_update.status)
+    if not updated_issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    
+    # Send notification based on new status
+    if status_update.status == "Resolved":
+        notify_issue_resolved(issue_id)
+    elif status_update.status == "Open":
+        notify_issue_reopened(issue_id)
+    
+    return updated_issue
