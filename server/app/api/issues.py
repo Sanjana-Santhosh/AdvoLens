@@ -9,6 +9,7 @@ from app.schemas.issue import IssueResponse
 from app.crud import issue as crud_issue
 from app.ml.clip_service import clip_service
 from app.ml.faiss_manager import faiss_manager
+from app.ml.gemini_service import gemini_service
 
 
 router = APIRouter(tags=["issues"])
@@ -32,23 +33,26 @@ async def create_issue(
     with open(file_location, "wb+") as file_object:
         shutil.copyfileobj(image.file, file_object)
 
-    # 2. Generate Embedding
+    # 2. AI Analysis (CLIP for embeddings, Gemini for captioning)
     embedding = clip_service.get_embedding(file_location)
+    gemini_result = gemini_service.analyze_image(file_location)
 
     # 3. Check for Visual Duplicates
     if embedding is not None:
         similar_issues = faiss_manager.search_similar(embedding, threshold=0.92)
         if similar_issues:
             original_id, score = similar_issues[0]
-            print(f"Duplicate detected! Similar to Issue #{original_id} with score {score}")
+            print(f"⚠️ Duplicate detected! Similar to Issue #{original_id} with score {score:.3f}")
             # Optionally: raise HTTPException here to block creation
 
-    # 4. Save to DB
+    # 4. Save to DB with AI-generated data
     new_issue = crud_issue.create_issue(
         db=db,
-        title=title,
+        title=title or gemini_result.get('caption'),  # Use AI caption if no title
         description=description,
         image_url=file_location,
+        caption=gemini_result.get('caption'),
+        tags=gemini_result.get('tags'),
         lat=lat,
         lon=lon,
     )

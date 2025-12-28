@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -16,6 +16,8 @@ class IssueResponse(IssueBase):
     id: int
     image_url: str
     status: str
+    caption: Optional[str] = None
+    tags: Optional[List[str]] = None
     created_at: datetime
 
     class Config:

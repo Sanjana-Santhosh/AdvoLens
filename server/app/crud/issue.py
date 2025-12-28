@@ -1,9 +1,19 @@
 from sqlalchemy.orm import Session
 from app.models.issue import Issue
 from geoalchemy2.elements import WKTElement
+from typing import Optional
 
 
-def create_issue(db: Session, title: str | None, description: str | None, image_url: str, lat: float, lon: float):
+def create_issue(
+    db: Session,
+    title: str | None,
+    description: str | None,
+    image_url: str,
+    lat: float,
+    lon: float,
+    caption: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+):
     # PostGIS uses (lon, lat) order in WKT
     location_wkt = f"POINT({lon} {lat})"
 
@@ -12,6 +22,8 @@ def create_issue(db: Session, title: str | None, description: str | None, image_
         description=description,
         image_url=image_url,
         location=WKTElement(location_wkt, srid=4326),
+        caption=caption,
+        tags=tags,
         status="Open",
     )
     db.add(db_issue)

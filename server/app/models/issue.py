@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float
+from sqlalchemy import Column, Integer, String, DateTime, Float, ARRAY
 from sqlalchemy.sql import func
 from geoalchemy2 import Geometry
 from app.core.database import Base
@@ -11,6 +11,10 @@ class Issue(Base):
     description = Column(String, nullable=True)
     image_url = Column(String, nullable=False)
     status = Column(String, default="Open")  # Open, In Progress, Resolved
+    
+    # AI-generated fields
+    caption = Column(String, nullable=True)  # Gemini-generated description
+    tags = Column(ARRAY(String), nullable=True)  # Gemini-generated tags
     
     # GeoAlchemy2 Geometry column for PostGIS
     # We use 'POINT' with SRID 4326 (standard GPS lat/lon)
