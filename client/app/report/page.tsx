@@ -1,7 +1,7 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createIssue } from '@/lib/api';
-import { Camera, MapPin, ArrowLeft } from 'lucide-react';
+import { Camera, MapPin, ArrowLeft, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ReportPage() {
@@ -9,23 +9,86 @@ export default function ReportPage() {
   const [location, setLocation] = useState<{lat: number, lon: number} | null>(null);
   const [loading, setLoading] = useState(false);
   const [description, setDescription] = useState('');
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [manualLocation, setManualLocation] = useState(false);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLon, setManualLon] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if geolocation is available on mount
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser.');
+    }
+  }, []);
 
   // Get Location
   const getLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          alert('Unable to get location. Please enable location services.');
-        }
-      );
-    } else {
-      alert('Geolocation is not supported by your browser.');
+    setLocationError(null);
+    
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser.');
+      setManualLocation(true);
+      return;
     }
+
+    // Check if we're on a secure context
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+      setLocationError('Location access requires HTTPS or localhost. Please use manual entry.');
+      setManualLocation(true);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        setLocationError(null);
+        setManualLocation(false);
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        let errorMessage = 'Unable to get location.';
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = 'Location permission denied. Please enable it in your browser settings or use manual entry.';
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = 'Location information unavailable. Please try manual entry.';
+            break;
+          case error.TIMEOUT:
+            errorMessage = 'Location request timed out. Please try again or use manual entry.';
+            break;
+        }
+        
+        setLocationError(errorMessage);
+        setManualLocation(true);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  };
+
+  // Handle manual location submission
+  const handleManualLocationSubmit = () => {
+    const lat = parseFloat(manualLat);
+    const lon = parseFloat(manualLon);
+    
+    if (isNaN(lat) || isNaN(lon)) {
+      alert('Please enter valid coordinates');
+      return;
+    }
+    
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      alert('Invalid coordinates. Latitude must be between -90 and 90, Longitude between -180 and 180.');
+      return;
+    }
+    
+    setLocation({ lat, lon });
+    setLocationError(null);
   };
 
   // Handle Submit
@@ -131,6 +194,16 @@ export default function ReportPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Location *
               </label>
+              
+              {/* Location Error Message */}
+              {locationError && (
+                <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-amber-800 text-sm">
+                  <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+                  <span>{locationError}</span>
+                </div>
+              )}
+              
+              {/* Get Location Button */}
               <button 
                 type="button"
                 onClick={getLocation}
@@ -152,6 +225,58 @@ export default function ReportPage() {
                   "Get Current Location"
                 )}
               </button>
+              
+              {/* Manual Location Entry */}
+              {manualLocation && !location && (
+                <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600 mb-2">Enter coordinates manually:</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-500">Latitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="e.g. 10.0159"
+                        value={manualLat}
+                        onChange={(e) => setManualLat(e.target.value)}
+                        className="w-full p-2 text-sm border border-gray-300 rounded bg-white text-gray-900 placeholder-gray-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500">Longitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="e.g. 76.3419"
+                        value={manualLon}
+                        onChange={(e) => setManualLon(e.target.value)}
+                        className="w-full p-2 text-sm border border-gray-300 rounded bg-white text-gray-900 placeholder-gray-400"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleManualLocationSubmit}
+                    className="mt-2 w-full p-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                  >
+                    Set Location
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Tip: You can find coordinates from Google Maps by right-clicking on a location.
+                  </p>
+                </div>
+              )}
+              
+              {/* Toggle manual entry link */}
+              {!manualLocation && !location && (
+                <button
+                  type="button"
+                  onClick={() => setManualLocation(true)}
+                  className="mt-2 text-xs text-blue-600 hover:underline"
+                >
+                  Can&apos;t get location? Enter manually
+                </button>
+              )}
             </div>
 
             {/* Submit Button */}

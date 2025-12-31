@@ -18,6 +18,7 @@ class IssueResponse(IssueBase):
     status: str
     caption: Optional[str] = None
     tags: Optional[List[str]] = None
+    department: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     created_at: datetime
@@ -35,6 +36,13 @@ class IssueResponse(IssueBase):
             for key in ['id', 'title', 'description', 'image_url', 'status', 
                        'caption', 'tags', 'created_at']:
                 obj_dict[key] = getattr(data, key, None)
+            
+            # Extract department value
+            department = getattr(data, 'department', None)
+            if department is not None:
+                obj_dict['department'] = department.value if hasattr(department, 'value') else str(department)
+            else:
+                obj_dict['department'] = None
             
             # Extract coordinates from PostGIS geometry
             location = getattr(data, 'location', None)

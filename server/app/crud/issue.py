@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models.issue import Issue
+from app.models.user import Department
 from geoalchemy2.elements import WKTElement
 from typing import Optional
 
@@ -13,6 +14,7 @@ def create_issue(
     lon: float,
     caption: Optional[str] = None,
     tags: Optional[list[str]] = None,
+    department: Department = Department.OTHER,
 ):
     # PostGIS uses (lon, lat) order in WKT
     location_wkt = f"POINT({lon} {lat})"
@@ -25,6 +27,7 @@ def create_issue(
         caption=caption,
         tags=tags,
         status="Open",
+        department=department,
     )
     db.add(db_issue)
     db.commit()

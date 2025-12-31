@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getIssues, updateIssueStatus, getImageUrl } from '@/lib/api';
-import { Filter, CheckCircle, AlertCircle, RefreshCw, BarChart3, Home } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { getImageUrl } from '@/lib/api';
+import { Filter, CheckCircle, AlertCircle, RefreshCw, BarChart3, Home, LogOut, Building2, Shuffle } from 'lucide-react';
 import Link from 'next/link';
 
 interface Issue {
@@ -10,21 +11,67 @@ interface Issue {
   caption: string | null;
   tags: string[] | null;
   status: string;
+  department: string | null;
   lat: number;
   lon: number;
   created_at: string;
 }
+
+interface User {
+  id: number;
+  email: string;
+  name: string | null;
+  role: string;
+  department: string | null;
+}
+
+const DEPARTMENTS = [
+  { value: 'municipality', label: 'Municipality' },
+  { value: 'water_authority', label: 'Water Authority' },
+  { value: 'kseb', label: 'KSEB' },
+  { value: 'pwd', label: 'PWD' },
+  { value: 'other', label: 'Other' },
+];
 
 export default function AdminDashboard() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [filter, setFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [reassignIssue, setReassignIssue] = useState<number | null>(null);
+  const router = useRouter();
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+  };
 
   const fetchIssues = async () => {
     setLoading(true);
     try {
-      const data = await getIssues();
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.push('/admin/login');
+        return;
+      }
+
+      // Use Next.js API route instead of calling backend directly
+      const res = await fetch('/api/admin/issues', {
+        headers: getAuthHeaders(),
+      });
+
+      if (res.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        router.push('/admin/login');
+        return;
+      }
+
+      const data = await res.json();
       setIssues(data);
     } catch (err) {
       console.error('Failed to fetch issues:', err);
@@ -34,16 +81,43 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    // In real app, check for admin token here!
+    // Check for auth token
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/admin/login');
+      return;
+    }
+
+    // Load user info
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+
     fetchIssues();
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    router.push('/admin/login');
+  };
 
   const handleResolve = async (issueId: number) => {
     setUpdating(issueId);
     try {
-      await updateIssueStatus(issueId, 'Resolved');
-      // Refresh the list
-      await fetchIssues();
+      // Use Next.js API route for status updates
+      const res = await fetch(`/api/issues/${issueId}/status`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status: 'Resolved' }),
+      });
+
+      if (res.ok) {
+        await fetchIssues();
+      } else {
+        alert('Failed to resolve issue');
+      }
     } catch (err) {
       console.error('Failed to update status:', err);
       alert('Failed to resolve issue. Please try again.');
@@ -55,13 +129,67 @@ export default function AdminDashboard() {
   const handleReopen = async (issueId: number) => {
     setUpdating(issueId);
     try {
-      await updateIssueStatus(issueId, 'Open');
-      await fetchIssues();
+      // Use Next.js API route for status updates
+      const res = await fetch(`/api/issues/${issueId}/status`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status: 'Open' }),
+      });
+
+      if (res.ok) {
+        await fetchIssues();
+      } else {
+        alert('Failed to reopen issue');
+      }
     } catch (err) {
       console.error('Failed to update status:', err);
       alert('Failed to reopen issue. Please try again.');
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const handleReassign = async (issueId: number, newDept: string) => {
+    try {
+      // Use Next.js API route for reassignment
+      const res = await fetch(`/api/admin/issues/${issueId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ department: newDept }),
+      });
+
+      if (res.ok) {
+        setReassignIssue(null);
+        await fetchIssues();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to reassign issue');
+      }
+    } catch (err) {
+      console.error('Failed to reassign:', err);
+      alert('Failed to reassign issue');
+    }
+  };
+
+  const handleDelete = async (issueId: number) => {
+    if (!confirm('Are you sure you want to delete this issue?')) return;
+    
+    try {
+      // Use Next.js API route for deletion
+      const res = await fetch(`/api/admin/issues/${issueId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+
+      if (res.ok) {
+        await fetchIssues();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to delete issue');
+      }
+    } catch (err) {
+      console.error('Failed to delete:', err);
+      alert('Failed to delete issue');
     }
   };
 
@@ -75,6 +203,26 @@ export default function AdminDashboard() {
     resolved: issues.filter(i => i.status === 'Resolved').length,
   };
 
+  const isSuperAdmin = user?.role === 'super_admin';
+
+  const getDepartmentLabel = (dept: string | null) => {
+    if (!dept) return 'Unassigned';
+    const found = DEPARTMENTS.find(d => d.value === dept);
+    return found ? found.label : dept;
+  };
+
+  const getDepartmentColor = (dept: string | null) => {
+    const colors: Record<string, string> = {
+      municipality: 'bg-orange-100 text-orange-800',
+      water_authority: 'bg-blue-100 text-blue-800',
+      kseb: 'bg-yellow-100 text-yellow-800',
+      pwd: 'bg-purple-100 text-purple-800',
+      other: 'bg-gray-100 text-gray-800',
+    };
+    return colors[dept || ''] || 'bg-gray-100 text-gray-800';
+  };
+
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -82,9 +230,19 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-4">
             <h1 className="text-2xl font-bold text-gray-800">City Admin Dashboard</h1>
-            <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium">Admin</span>
+            <span className={`px-2 py-1 rounded text-xs font-medium ${
+              isSuperAdmin ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+            }`}>
+              {isSuperAdmin ? 'Super Admin' : 'Official'}
+            </span>
+            {user?.department && (
+              <span className={`px-2 py-1 rounded text-xs font-medium ${getDepartmentColor(user.department)}`}>
+                {getDepartmentLabel(user.department)}
+              </span>
+            )}
           </div>
           <div className="flex items-center space-x-4">
+            <span className="text-sm text-gray-600">{user?.email}</span>
             <Link href="/admin/analytics" className="flex items-center text-gray-600 hover:text-blue-600">
               <BarChart3 size={20} className="mr-1" />
               Analytics
@@ -93,6 +251,13 @@ export default function AdminDashboard() {
               <Home size={20} className="mr-1" />
               Home
             </Link>
+            <button
+              onClick={handleLogout}
+              className="flex items-center text-gray-600 hover:text-red-600"
+            >
+              <LogOut size={20} className="mr-1" />
+              Logout
+            </button>
           </div>
         </div>
       </header>
@@ -212,6 +377,14 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
+                  {/* Department Badge */}
+                  <div className="mb-3">
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${getDepartmentColor(issue.department)}`}>
+                      <Building2 size={12} />
+                      {getDepartmentLabel(issue.department)}
+                    </span>
+                  </div>
+
                   {/* Meta Info */}
                   <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
                     <span>{new Date(issue.created_at).toLocaleDateString()}</span>
@@ -230,23 +403,58 @@ export default function AdminDashboard() {
                   </div>
 
                   {/* Action Button */}
-                  {issue.status === 'Open' ? (
-                    <button 
-                      onClick={() => handleResolve(issue.id)}
-                      disabled={updating === issue.id}
-                      className="w-full text-sm bg-green-600 text-white px-4 py-2.5 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
-                    >
-                      {updating === issue.id ? 'Updating...' : '✓ Mark as Resolved'}
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => handleReopen(issue.id)}
-                      disabled={updating === issue.id}
-                      className="w-full text-sm bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
-                    >
-                      {updating === issue.id ? 'Updating...' : '↩ Reopen Issue'}
-                    </button>
-                  )}
+                  <div className="space-y-2">
+                    {issue.status === 'Open' ? (
+                      <button 
+                        onClick={() => handleResolve(issue.id)}
+                        disabled={updating === issue.id}
+                        className="w-full text-sm bg-green-600 text-white px-4 py-2.5 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                      >
+                        {updating === issue.id ? 'Updating...' : '✓ Mark as Resolved'}
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => handleReopen(issue.id)}
+                        disabled={updating === issue.id}
+                        className="w-full text-sm bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                      >
+                        {updating === issue.id ? 'Updating...' : '↩ Reopen Issue'}
+                      </button>
+                    )}
+                    
+                    {/* Super Admin Actions */}
+                    {isSuperAdmin && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setReassignIssue(reassignIssue === issue.id ? null : issue.id)}
+                          className="flex-1 text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 font-medium flex items-center justify-center gap-1"
+                        >
+                          <Shuffle size={14} />
+                          Reassign
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(issue.id)}
+                          className="text-sm bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 font-medium"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Reassign Dropdown */}
+                    {reassignIssue === issue.id && (
+                      <select
+                        className="w-full p-2 border rounded-lg text-sm"
+                        onChange={(e) => handleReassign(issue.id, e.target.value)}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Select Department</option>
+                        {DEPARTMENTS.map(dept => (
+                          <option key={dept.value} value={dept.value}>{dept.label}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -264,10 +472,11 @@ export default function AdminDashboard() {
                     <th className="p-4 font-semibold text-gray-600 text-sm">Image</th>
                     <th className="p-4 font-semibold text-gray-600 text-sm">Description (AI)</th>
                     <th className="p-4 font-semibold text-gray-600 text-sm">Tags</th>
+                    <th className="p-4 font-semibold text-gray-600 text-sm">Department</th>
                     <th className="p-4 font-semibold text-gray-600 text-sm">Location</th>
                     <th className="p-4 font-semibold text-gray-600 text-sm">Date</th>
                     <th className="p-4 font-semibold text-gray-600 text-sm">Status</th>
-                    <th className="p-4 font-semibold text-gray-600 text-sm">Action</th>
+                    <th className="p-4 font-semibold text-gray-600 text-sm">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -303,6 +512,12 @@ export default function AdminDashboard() {
                           )}
                         </div>
                       </td>
+                      <td className="p-4">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${getDepartmentColor(issue.department)}`}>
+                          <Building2 size={12} />
+                          {getDepartmentLabel(issue.department)}
+                        </span>
+                      </td>
                       <td className="p-4 text-sm text-gray-500">
                         {issue.lat && issue.lon ? (
                           <a 
@@ -331,23 +546,59 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="p-4">
-                        {issue.status === 'Open' ? (
-                          <button 
-                            onClick={() => handleResolve(issue.id)}
-                            disabled={updating === issue.id}
-                            className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                          >
-                            {updating === issue.id ? 'Updating...' : 'Resolve'}
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => handleReopen(issue.id)}
-                            disabled={updating === issue.id}
-                            className="text-sm bg-gray-600 text-white px-3 py-1.5 rounded hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                          >
-                            {updating === issue.id ? 'Updating...' : 'Reopen'}
-                          </button>
-                        )}
+                        <div className="flex flex-col gap-2">
+                          {issue.status === 'Open' ? (
+                            <button 
+                              onClick={() => handleResolve(issue.id)}
+                              disabled={updating === issue.id}
+                              className="text-sm bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                              {updating === issue.id ? 'Updating...' : 'Resolve'}
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleReopen(issue.id)}
+                              disabled={updating === issue.id}
+                              className="text-sm bg-gray-600 text-white px-3 py-1.5 rounded hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                              {updating === issue.id ? 'Updating...' : 'Reopen'}
+                            </button>
+                          )}
+                          
+                          {/* Super Admin Actions */}
+                          {isSuperAdmin && (
+                            <div className="flex gap-1">
+                              {reassignIssue === issue.id ? (
+                                <select
+                                  className="text-xs p-1 border rounded"
+                                  onChange={(e) => handleReassign(issue.id, e.target.value)}
+                                  defaultValue=""
+                                  autoFocus
+                                >
+                                  <option value="" disabled>Select Dept</option>
+                                  {DEPARTMENTS.map(dept => (
+                                    <option key={dept.value} value={dept.value}>{dept.label}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <button 
+                                  onClick={() => setReassignIssue(issue.id)}
+                                  className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700"
+                                  title="Reassign Department"
+                                >
+                                  <Shuffle size={12} />
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => handleDelete(issue.id)}
+                                className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                                title="Delete Issue"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

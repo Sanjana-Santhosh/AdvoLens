@@ -3,7 +3,7 @@ import axios from 'axios';
 // Use Next.js API routes instead of calling backend directly
 // This avoids CORS issues and keeps backend URL secure
 const api = axios.create({
-  baseURL: '', // Same origin - uses Next.js API routes
+  baseURL: process.env.NEXT_PUBLIC_API_URL || '', // Same origin - uses Next.js API routes
 });
 
 // Helper for file uploads (important for images!)
@@ -34,9 +34,13 @@ export const updateIssueStatus = async (id: number, status: string) => {
   return response.data;
 };
 
-// For image URLs, we still need to use the backend directly
-// since images are served as static files
+// For image URLs - now supports both Cloudinary (full URL) and legacy local paths
 export const getImageUrl = (imagePath: string) => {
+  // If it's already a full URL (Cloudinary), return as-is
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+  // Legacy support for local uploads
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
   return `${backendUrl}/${imagePath}`;
 };
