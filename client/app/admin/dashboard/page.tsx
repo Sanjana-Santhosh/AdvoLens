@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getImageUrl } from '@/lib/api';
-import { Filter, CheckCircle, AlertCircle, RefreshCw, BarChart3, Home, LogOut, Building2, Shuffle } from 'lucide-react';
+import { Filter, CheckCircle, AlertCircle, RefreshCw, BarChart3, Home, LogOut, Building2, Shuffle, Download, Flame } from 'lucide-react';
 import Link from 'next/link';
 
 interface Issue {
@@ -15,6 +15,8 @@ interface Issue {
   lat: number;
   lon: number;
   created_at: string;
+  upvote_count?: number;
+  priority_score?: number;
 }
 
 interface User {
@@ -23,6 +25,15 @@ interface User {
   name: string | null;
   role: string;
   department: string | null;
+}
+
+interface PriorityIssue {
+  id: number;
+  caption: string;
+  status: string;
+  department: string;
+  upvote_count: number;
+  priority_score: number;
 }
 
 const DEPARTMENTS = [
@@ -35,6 +46,7 @@ const DEPARTMENTS = [
 
 export default function AdminDashboard() {
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [priorityIssues, setPriorityIssues] = useState<PriorityIssue[]>([]);
   const [filter, setFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
@@ -42,12 +54,30 @@ export default function AdminDashboard() {
   const [reassignIssue, setReassignIssue] = useState<number | null>(null);
   const router = useRouter();
 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
+  };
+
+  const handleExportCSV = () => {
+    window.open(`${API_URL}/analytics/export/issues`, '_blank');
+  };
+
+  const fetchPriorityIssues = async () => {
+    try {
+      const res = await fetch(`${API_URL}/analytics/priority-issues?limit=5`);
+      if (res.ok) {
+        const data = await res.json();
+        setPriorityIssues(data.issues || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch priority issues:', err);
+    }
   };
 
   const fetchIssues = async () => {
@@ -95,6 +125,7 @@ export default function AdminDashboard() {
     }
 
     fetchIssues();
+    fetchPriorityIssues();
   }, []);
 
   const handleLogout = () => {
@@ -243,6 +274,13 @@ export default function AdminDashboard() {
           </div>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">{user?.email}</span>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+            >
+              <Download size={16} className="mr-1" />
+              Export CSV
+            </button>
             <Link href="/admin/analytics" className="flex items-center text-gray-600 hover:text-blue-600">
               <BarChart3 size={20} className="mr-1" />
               Analytics
@@ -264,7 +302,7 @@ export default function AdminDashboard() {
 
       <div className="max-w-7xl mx-auto p-6">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
             <div className="text-sm text-gray-500 mb-1">Total Issues</div>
             <div className="text-3xl font-bold text-gray-800">{stats.total}</div>
@@ -278,6 +316,44 @@ export default function AdminDashboard() {
             <div className="text-3xl font-bold text-green-600">{stats.resolved}</div>
           </div>
         </div>
+
+        {/* Priority Issues Widget */}
+        {priorityIssues.length > 0 && (
+          <div className="bg-white rounded-xl p-6 border border-red-200 shadow-sm mb-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Flame className="text-red-500" size={20} />
+              High Priority Issues
+            </h2>
+            <div className="space-y-2">
+              {priorityIssues.map((issue, idx) => (
+                <div 
+                  key={issue.id} 
+                  className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 hover:bg-red-100 transition cursor-pointer"
+                  onClick={() => {
+                    // Scroll to this issue in the list or navigate
+                    const element = document.getElementById(`issue-${issue.id}`);
+                    if (element) element.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold text-red-600">#{idx + 1}</span>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800 line-clamp-1">
+                        {issue.caption || `Issue #${issue.id}`}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {issue.upvote_count} upvotes · {getDepartmentLabel(issue.department)}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-red-700 bg-red-100 px-2 py-1 rounded">
+                    Score: {issue.priority_score}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Filter & Refresh */}
         <div className="flex justify-between items-center mb-6">

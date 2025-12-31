@@ -15,6 +15,7 @@ def create_issue(
     caption: Optional[str] = None,
     tags: Optional[list[str]] = None,
     department: Department = Department.OTHER,
+    citizen_token: Optional[str] = None,
 ):
     # PostGIS uses (lon, lat) order in WKT
     location_wkt = f"POINT({lon} {lat})"
@@ -28,6 +29,7 @@ def create_issue(
         tags=tags,
         status="Open",
         department=department,
+        citizen_token=citizen_token,
     )
     db.add(db_issue)
     db.commit()

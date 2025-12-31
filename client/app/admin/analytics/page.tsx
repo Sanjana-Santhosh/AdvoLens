@@ -3,8 +3,19 @@ import { useEffect, useState } from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import { getIssues } from '@/lib/api';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, MapPin } from 'lucide-react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+// Dynamically import the map component (client-side only)
+const IssueMap = dynamic(() => import('@/components/IssueMap'), { 
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-96 bg-gray-100 rounded-lg">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+    </div>
+  )
+});
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
@@ -13,10 +24,24 @@ interface Issue {
   tags: string[] | null;
   status: string;
   created_at: string;
+  lat?: number | null;
+  lon?: number | null;
+  caption?: string | null;
+  department?: string | null;
+  image_url?: string;
+}
+
+interface Hotspot {
+  cluster_id: number;
+  center: { lat: number; lon: number };
+  issue_count: number;
+  issue_ids: number[];
+  primary_department?: string;
 }
 
 export default function AnalyticsPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchIssues = async () => {
@@ -31,8 +56,22 @@ export default function AnalyticsPage() {
     }
   };
 
+  const fetchHotspots = async () => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_URL}/analytics/hotspots?status=null`);
+      if (res.ok) {
+        const data = await res.json();
+        setHotspots(data.hotspots || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch hotspots:', err);
+    }
+  };
+
   useEffect(() => {
     fetchIssues();
+    fetchHotspots();
   }, []);
 
   // Calculate tag distribution
@@ -170,7 +209,7 @@ export default function AnalyticsPage() {
             <h1 className="text-2xl font-bold text-gray-800">Analytics Dashboard</h1>
           </div>
           <button
-            onClick={fetchIssues}
+            onClick={() => { fetchIssues(); fetchHotspots(); }}
             disabled={loading}
             className="flex items-center px-4 py-2 bg-white border rounded-lg shadow-sm hover:bg-gray-50 text-gray-600"
           >
@@ -251,6 +290,53 @@ export default function AnalyticsPage() {
             </div>
           ) : (
             <Bar data={weeklyData} options={barOptions} />
+          )}
+        </div>
+
+        {/* Geographic Hotspots Map */}
+        <div className="bg-white rounded-xl p-6 border shadow-sm mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <MapPin className="text-amber-500" size={20} />
+              Problem Hotspots
+            </h2>
+            <span className="text-sm text-gray-500">
+              {hotspots.length} cluster{hotspots.length !== 1 ? 's' : ''} detected
+            </span>
+          </div>
+          
+          {/* Map */}
+          <div className="h-96 rounded-lg overflow-hidden mb-4">
+            <IssueMap 
+              issues={issues.filter(i => i.status === 'Open')} 
+              hotspots={hotspots}
+              height="100%"
+            />
+          </div>
+          
+          {/* Hotspot List */}
+          {hotspots.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="font-medium text-sm text-gray-600 mb-2">Top Hotspots</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {hotspots.slice(0, 6).map((h, idx) => (
+                  <div 
+                    key={idx} 
+                    className="flex justify-between items-center p-3 bg-amber-50 border border-amber-200 rounded-lg"
+                  >
+                    <div>
+                      <span className="text-sm font-medium text-amber-800">🔥 Cluster #{idx + 1}</span>
+                      {h.primary_department && (
+                        <p className="text-xs text-amber-600 mt-0.5">
+                          {h.primary_department.replace('_', ' ')}
+                        </p>
+                      )}
+                    </div>
+                    <span className="text-lg font-bold text-amber-700">{h.issue_count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 

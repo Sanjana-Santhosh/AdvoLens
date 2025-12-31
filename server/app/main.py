@@ -6,6 +6,9 @@ from app.api.routes import router as api_router
 from app.api.issues import router as issues_router
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
+from app.api.notifications import router as notifications_router
+from app.api.analytics import router as analytics_router
+from app.api.engagement import router as engagement_router
 
 
 @asynccontextmanager
@@ -50,6 +53,14 @@ def create_app() -> FastAPI:
     app.include_router(issues_router, prefix="/issues")
     app.include_router(auth_router, prefix="/auth")
     app.include_router(admin_router, prefix="/admin")
+    app.include_router(notifications_router, prefix="/notifications")
+    app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+    app.include_router(engagement_router, prefix="/issues", tags=["engagement"])
+
+    # Health check endpoint for Docker/Kubernetes
+    @app.get("/health", tags=["health"])
+    async def health_check():
+        return {"status": "healthy", "service": "advolens-backend"}
 
     # Serve uploaded images
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
