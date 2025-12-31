@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { createIssue } from '@/lib/api';
 import { Camera, MapPin, ArrowLeft, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
@@ -8,6 +9,7 @@ export default function ReportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [location, setLocation] = useState<{lat: number, lon: number} | null>(null);
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
   const [description, setDescription] = useState('');
   const [locationError, setLocationError] = useState<string | null>(null);
   const [manualLocation, setManualLocation] = useState(false);
@@ -111,11 +113,23 @@ export default function ReportPage() {
 
     try {
       const res = await createIssue(formData);
-      alert(`Reported! ID: ${res.id}\nCaption: ${res.caption}\nTags: ${res.tags?.join(', ') || 'None'}`);
+      
+      // Save tracking token for notifications
+      if (res.tracking_token) {
+        localStorage.setItem('tracking_token', res.tracking_token);
+      }
+      
+      // Show success message with department info
+      const deptLabel = res.department?.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Unknown';
+      alert(`✅ Report Submitted!\n\nIssue ID: #${res.id}\nDepartment: ${deptLabel}\nCaption: ${res.caption}\nTags: ${res.tags?.join(', ') || 'None'}\n\nYour tracking token has been saved. Check "My Updates" to track progress!`);
+      
       // Reset form
       setFile(null);
       setLocation(null);
       setDescription('');
+      
+      // Redirect to notifications page
+      router.push('/notifications');
     } catch (err) {
       console.error(err);
       alert("Failed to report. Please try again.");

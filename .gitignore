@@ -106,3 +106,4 @@ coverage/
 *.class
 *.jar
 *.war
+server/faiss_index.bin

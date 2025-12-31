@@ -33,15 +33,33 @@ class GeminiService:
 
             prompt = """Analyze this civic issue image and provide:
 1. A brief description (one sentence, 15-20 words)
-2. Relevant tags from this list: garbage, illegal_dumping, overflowing_bin, 
-   plastic_waste, food_waste, street_litter, broken_infrastructure, pothole,
-   road_damage, graffiti, abandoned_vehicle, drainage_issue, other
+2. Relevant tags - MUST include the department name AND specific issue tags:
+
+DEPARTMENT TAGS (include one of these):
+- municipality: for garbage, sanitation, cleaning issues
+- water_authority: for water, drainage, sewage issues  
+- kseb: for electricity, streetlight, power issues
+- pwd: for roads, potholes, infrastructure issues
+- other: for anything else
+
+ISSUE TAGS:
+- Garbage: garbage, trash, dumping, waste, litter, illegal_dumping, overflowing_bin, plastic_waste, food_waste, street_litter
+- Water: water, leak, pipe, sewage, drain, drainage, flooding, waterlogging, drainage_issue
+- Electrical: light, pole, wire, electricity, power, streetlight, transformer, cable, broken_streetlight
+- Roads: road, pothole, tar, pavement, bridge, highway, footpath, road_damage, broken_infrastructure
+- Other: graffiti, abandoned_vehicle, stray_animal, encroachment, noise
 
 Return ONLY a JSON object with this exact format:
-{"caption": "description here", "tags": ["tag1", "tag2"]}
+{"caption": "description here", "tags": ["department_tag", "issue_tag1", "issue_tag2"]}
 
 Example for garbage image:
-{"caption": "Pile of plastic bottles and food wrappers scattered on street corner", "tags": ["garbage", "street_litter", "plastic_waste"]}
+{"caption": "Pile of plastic bottles and food wrappers scattered on street corner", "tags": ["municipality", "garbage", "street_litter", "plastic_waste"]}
+
+Example for road issue:
+{"caption": "Large pothole on main road causing traffic hazard", "tags": ["pwd", "pothole", "road_damage", "road"]}
+
+Example for streetlight issue:
+{"caption": "Broken streetlight pole leaning dangerously over sidewalk", "tags": ["kseb", "streetlight", "pole", "electrical"]}
 """
 
             response = client.models.generate_content(

@@ -12,22 +12,36 @@ def assign_department(tags: list[str]) -> Department:
     
     tag_set = set(tag.lower() for tag in tags)
     
-    # Mapping logic: Tags -> Department
+    # First check for direct department tags (highest priority)
+    if "municipality" in tag_set:
+        return Department.MUNICIPALITY
+    if "water_authority" in tag_set:
+        return Department.WATER_AUTHORITY
+    if "kseb" in tag_set:
+        return Department.KSEB
+    if "pwd" in tag_set:
+        return Department.PWD
+    
+    # Fallback: Mapping logic based on issue tags
     
     # Municipality handles garbage, cleaning, sanitation
-    if tag_set & {"garbage", "trash", "dumping", "cleaning", "waste", "litter", "rubbish", "sanitation"}:
+    if tag_set & {"garbage", "trash", "dumping", "cleaning", "waste", "litter", "rubbish", "sanitation", 
+                  "illegal_dumping", "overflowing_bin", "plastic_waste", "food_waste", "street_litter"}:
         return Department.MUNICIPALITY
     
     # Water Authority handles water-related issues
-    if tag_set & {"water", "leak", "pipe", "sewage", "drain", "drainage", "flooding", "waterlogging", "sewerage"}:
+    if tag_set & {"water", "leak", "pipe", "sewage", "drain", "drainage", "flooding", "waterlogging", 
+                  "sewerage", "drainage_issue"}:
         return Department.WATER_AUTHORITY
     
     # KSEB handles electricity and lighting
-    if tag_set & {"light", "pole", "wire", "electricity", "power", "streetlight", "transformer", "cable", "electrical"}:
+    if tag_set & {"light", "pole", "wire", "electricity", "power", "streetlight", "transformer", 
+                  "cable", "electrical", "broken_streetlight"}:
         return Department.KSEB
     
     # PWD handles roads and infrastructure
-    if tag_set & {"road", "pothole", "tar", "pavement", "bridge", "highway", "footpath", "sidewalk", "asphalt"}:
+    if tag_set & {"road", "pothole", "tar", "pavement", "bridge", "highway", "footpath", "sidewalk", 
+                  "asphalt", "road_damage", "broken_infrastructure"}:
         return Department.PWD
 
     return Department.OTHER

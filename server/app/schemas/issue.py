@@ -21,6 +21,9 @@ class IssueResponse(IssueBase):
     department: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    upvote_count: int = 0
+    priority_score: int = 0
+    comment_count: int = 0
     created_at: datetime
 
     class Config:
@@ -34,8 +37,16 @@ class IssueResponse(IssueBase):
             # It's an ORM model
             obj_dict = {}
             for key in ['id', 'title', 'description', 'image_url', 'status', 
-                       'caption', 'tags', 'created_at']:
+                       'caption', 'tags', 'created_at', 'upvote_count', 'priority_score']:
                 obj_dict[key] = getattr(data, key, None)
+            
+            # Set defaults for engagement fields
+            obj_dict['upvote_count'] = obj_dict.get('upvote_count') or 0
+            obj_dict['priority_score'] = obj_dict.get('priority_score') or 0
+            
+            # Count comments if relationship is loaded
+            comments = getattr(data, 'comments', None)
+            obj_dict['comment_count'] = len(comments) if comments else 0
             
             # Extract department value
             department = getattr(data, 'department', None)
@@ -62,3 +73,22 @@ class IssueResponse(IssueBase):
             
             return obj_dict
         return data
+
+
+class IssueCreateResponse(IssueResponse):
+    """Extended response for issue creation that includes tracking token"""
+    tracking_token: str
+    duplicate_of: Optional[int] = None
+    notification_message: str = "Save your tracking token to receive updates on your report!"
+
+    @classmethod
+    def from_issue(cls, issue, tracking_token: str, duplicate_of: Optional[int] = None):
+        """Create response from Issue ORM model"""
+        # Get base data using parent's validator logic
+        base_data = IssueResponse.extract_coordinates(issue)
+        
+        return cls(
+            **base_data,
+            tracking_token=tracking_token,
+            duplicate_of=duplicate_of
+        )

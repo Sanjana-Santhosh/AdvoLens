@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MapPin, Camera, Users, Shield, Settings } from "lucide-react";
+import { MapPin, Camera, Users, Shield, Settings, Bell } from "lucide-react";
 
 export default function Home() {
   return (
@@ -51,6 +51,13 @@ export default function Home() {
             >
               <Users className="mr-2" size={24} />
               View Community Reports
+            </Link>
+            <Link
+              href="/notifications"
+              className="flex items-center justify-center w-full bg-white text-gray-800 p-4 rounded-xl font-bold hover:bg-gray-50 transition-colors border border-gray-200"
+            >
+              <Bell className="mr-2" size={24} />
+              My Updates
             </Link>
           </div>
 

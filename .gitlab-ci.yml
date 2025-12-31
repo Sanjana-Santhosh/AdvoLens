@@ -1,0 +1,48 @@
+stages:
+  - build
+  - deploy
+
+# Only run when manually triggered
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'  # Manual trigger only
+      when: always
+    - when: never
+
+variables:
+  DOCKER_IMAGE: "sanjumsanthosh/advolens-backend"
+  DOCKER_TAG: "latest"
+
+# Build and push Docker image
+build-backend:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  
+  before_script:
+    # Login to Docker Hub
+    - echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+  
+  script:
+    - echo "Building Docker image for backend..."
+    - cd server
+    
+    # Build with multi-platform support (for M1 Mac compatibility)
+    - docker buildx create --use || true
+    - docker buildx build --platform linux/amd64 -t $DOCKER_IMAGE:$DOCKER_TAG --push .
+    
+    - echo "✅ Image pushed to Docker Hub"
+  
+  only:
+    - main  # Only build from main branch
+
+# Optional: Notification job
+notify-success:
+  stage: deploy
+  script:
+    - echo "🎉 Deployment triggered!"
+    - echo "Watchtower will auto-deploy within 5 minutes on VPS"
+  
+  only:
+    - main

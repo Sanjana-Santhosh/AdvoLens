@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, ARRAY, Enum
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from app.core.database import Base
 from app.models.user import Department
@@ -24,9 +25,21 @@ class Issue(Base):
         default=Department.OTHER
     )
     
+    # Anonymous citizen tracking token
+    citizen_token = Column(String, index=True, nullable=True)
+    
+    # Engagement metrics
+    upvote_count = Column(Integer, default=0)
+    priority_score = Column(Integer, default=0)  # Auto-calculated based on votes, age, status
+    
     # GeoAlchemy2 Geometry column for PostGIS
     # We use 'POINT' with SRID 4326 (standard GPS lat/lon)
     location = Column(Geometry('POINT', srid=4326), nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    notifications = relationship("Notification", back_populates="issue")
+    votes = relationship("Vote", back_populates="issue", cascade="all, delete-orphan")
+    comments = relationship("Comment", back_populates="issue", cascade="all, delete-orphan")
