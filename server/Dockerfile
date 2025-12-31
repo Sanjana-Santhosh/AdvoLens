@@ -3,23 +3,27 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies for PostgreSQL, PostGIS, and ML libraries
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     postgresql-client \
     libpq-dev \
     libgeos-dev \
-    libproj-dev \
-    gdal-bin \
-    libgdal-dev \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Copy requirements first (for layer caching)
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install PyTorch CPU-only version first (much smaller than default)
+# Then install other requirements
+RUN pip install --no-cache-dir \
+    torch==2.2.2+cpu \
+    torchvision==0.17.2+cpu \
+    --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt \
+    && rm -rf ~/.cache/pip
 
 # Copy application code
 COPY . .
