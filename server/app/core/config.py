@@ -1,0 +1,21 @@
+import os
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+# Fix OpenMP conflict - must be set before torch imports
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+
+
+class Settings:
+	# Core settings
+	DATABASE_URL: str | None = os.getenv("DATABASE_URL")
+
+	# LLM settings (global for all clients)
+	LLM_MODEL: str = os.getenv("LLM_MODEL", "GPT-5.1-Codex-Max")
+	LLM_ENABLE_PREVIEW: bool = os.getenv("LLM_ENABLE_PREVIEW", "true").lower() == "true"
+	LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gpt")
+
+
+settings = Settings()
