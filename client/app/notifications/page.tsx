@@ -30,8 +30,6 @@ export default function NotificationsPage() {
   const [claimError, setClaimError] = useState<string | null>(null);
   const [savedTokens, setSavedTokens] = useState<string[]>([]);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
   useEffect(() => {
     const savedToken = localStorage.getItem('tracking_token');
     setToken(savedToken);
@@ -96,7 +94,7 @@ export default function NotificationsPage() {
     setClaimError(null);
     setClaimPreview(null);
     try {
-      const res = await fetch(`${API_URL}/citizen/token/${encodeURIComponent(claimInput.trim())}/summary`);
+      const res = await fetch(`/api/citizen/token/${encodeURIComponent(claimInput.trim())}/summary`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || 'Token not found');
@@ -113,13 +111,27 @@ export default function NotificationsPage() {
   const claimToken = () => {
     const t = claimInput.trim();
     if (!t || t === token) return;
+
     const updated = Array.from(new Set([...savedTokens, t]));
     setSavedTokens(updated);
     localStorage.setItem('saved_tokens', JSON.stringify(updated));
+
+    if (!token) {
+      localStorage.setItem('tracking_token', t);
+      setToken(t);
+      fetchNotifications(t);
+    }
+
     setClaimInput('');
     setClaimPreview(null);
+    setClaimError(null);
     setShowClaimSection(false);
-    alert(`✅ Token claimed! ${updated.length} token(s) now saved on this device.`);
+
+    if (token) {
+      alert(`✅ Token claimed! ${updated.length} token(s) now saved on this device.`);
+    } else {
+      alert('✅ Token linked! This device is now connected to your reports.');
+    }
   };
 
   const getNotificationIcon = (type: string) => {
@@ -166,8 +178,65 @@ export default function NotificationsPage() {
           </div>
           <h2 className="text-xl font-semibold text-gray-700 mb-2">No Tracking Token</h2>
           <p className="text-gray-500 mb-6">
-            Submit a report to start tracking notifications. Your tracking token will be saved automatically.
+            Submit a report to start tracking notifications, or enter a token from another device to link it here.
           </p>
+
+          <div className="bg-white border border-blue-200 rounded-lg p-4 mb-4 text-left">
+            <p className="text-xs text-blue-700 font-semibold mb-2">Already have a token?</p>
+            <p className="text-xs text-blue-600 mb-3">Enter it below to connect this device.</p>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={claimInput}
+                onChange={(e) => {
+                  setClaimInput(e.target.value);
+                  setClaimPreview(null);
+                  setClaimError(null);
+                }}
+                placeholder="Enter your token here..."
+                className="flex-1 text-xs border border-blue-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none"
+              />
+              <button
+                onClick={previewClaimToken}
+                disabled={claimLoading || !claimInput.trim()}
+                className="px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+              >
+                {claimLoading ? '...' : 'Preview'}
+              </button>
+            </div>
+
+            {claimError && (
+              <p className="text-xs text-red-600 mt-2">{claimError}</p>
+            )}
+
+            {claimPreview && (
+              <div className="bg-white border border-blue-200 rounded-lg p-3 mt-3">
+                <p className="text-xs font-semibold text-gray-700 mb-1">Token Preview</p>
+                <p className="text-xs text-gray-600">{claimPreview.issue_count} issue(s) found</p>
+                {claimPreview.last_activity && (
+                  <p className="text-xs text-gray-500">
+                    Last activity: {new Date(claimPreview.last_activity).toLocaleDateString()}
+                  </p>
+                )}
+                <button
+                  onClick={claimToken}
+                  className="mt-2 w-full py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                >
+                  ✅ Claim This Token
+                </button>
+              </div>
+            )}
+
+            <Link
+              href="/how-it-works/token"
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-3"
+            >
+              <HelpCircle size={12} />
+              How does my token work?
+            </Link>
+          </div>
+
           <Link
             href="/report"
             className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"

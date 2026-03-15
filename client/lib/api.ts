@@ -29,6 +29,17 @@ export const searchSimilarIssues = async (id: number, limit: number = 5) => {
   return response.data;
 };
 
+export const runDuplicatePreCheck = async (payload: {
+  image_base64: string;
+  latitude: number;
+  longitude: number;
+}) => {
+  const response = await api.post('/api/issues/pre-check', payload, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return response.data;
+};
+
 export const updateIssueStatus = async (id: number, status: string) => {
   const response = await api.patch(`/api/issues/${id}/status`, { status });
   return response.data;

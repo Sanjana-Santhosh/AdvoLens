@@ -72,8 +72,7 @@ export default function FeedPage() {
     
     setVotingIssueId(issueId);
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${API_URL}/issues/${issueId}/vote`, {
+      const res = await fetch(`/api/issues/${issueId}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ citizen_token: token, vote_type: 'upvote' })
@@ -97,8 +96,7 @@ export default function FeedPage() {
 
   const fetchHotspots = async () => {
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${API_URL}/analytics/hotspots`);
+      const res = await fetch(`/api/analytics/hotspots`);
       if (res.ok) {
         const data = await res.json();
         setHotspots(data.hotspots || []);

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { X, Search, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { runDuplicatePreCheck } from '@/lib/api';
 
 interface PreCheckResult {
   visual_score: number;
@@ -37,8 +38,6 @@ export default function DuplicateCheckModal({
   const [error, setError] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
   const runCheck = async () => {
     setLoading(true);
     setError(null);
@@ -56,22 +55,11 @@ export default function DuplicateCheckModal({
         reader.readAsDataURL(imageFile);
       });
 
-      const res = await fetch(`${API_URL}/issues/pre-check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_base64: base64,
-          latitude,
-          longitude,
-        }),
+      const data: PreCheckResult = await runDuplicatePreCheck({
+        image_base64: base64,
+        latitude,
+        longitude,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Check failed');
-      }
-
-      const data: PreCheckResult = await res.json();
       setResult(data);
       setChecked(true);
     } catch (err) {

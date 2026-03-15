@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Send, ThumbsUp, MapPin, Clock, Tag } from 'lucide-react';
 import Link from 'next/link';
+import { getImageUrl } from '@/lib/api';
 
 interface Issue {
   id: number;
@@ -38,23 +39,19 @@ export default function IssueDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [userVote, setUserVote] = useState<string | null>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-  useEffect(() => {
-    if (!issueId) return;
-
+  
     const fetchData = async () => {
       setLoading(true);
       try {
         // Fetch issue details
-        const issueRes = await fetch(`${API_URL}/issues/${issueId}`);
+        const issueRes = await fetch(`/api/issues/${issueId}`);
         if (issueRes.ok) {
           const issueData = await issueRes.json();
           setIssue(issueData);
         }
         
         // Fetch comments
-        const commentsRes = await fetch(`${API_URL}/issues/${issueId}/comments`);
+        const commentsRes = await fetch(`/api/issues/${issueId}/comments`);
         if (commentsRes.ok) {
           const commentsData = await commentsRes.json();
           setComments(commentsData);
@@ -63,7 +60,7 @@ export default function IssueDetailPage() {
         // Check user's vote status
         const token = localStorage.getItem('tracking_token');
         if (token) {
-          const voteRes = await fetch(`${API_URL}/issues/${issueId}/vote?citizen_token=${token}`);
+          const voteRes = await fetch(`/api/issues/${issueId}/vote?citizen_token=${token}`);
           if (voteRes.ok) {
             const voteData = await voteRes.json();
             setUserVote(voteData.your_vote);
@@ -77,7 +74,7 @@ export default function IssueDetailPage() {
     };
 
     fetchData();
-  }, [issueId, API_URL]);
+  }, [issueId]);
 
   const handleVote = async () => {
     const token = localStorage.getItem('tracking_token');
@@ -87,7 +84,7 @@ export default function IssueDetailPage() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/issues/${issueId}/vote`, {
+      const res = await fetch(`/api/issues/${issueId}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ citizen_token: token, vote_type: 'upvote' })
@@ -118,7 +115,7 @@ export default function IssueDetailPage() {
     
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/issues/${issueId}/comments`, {
+      const res = await fetch(`/api/issues/${issueId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ citizen_token: token, text: newComment })
@@ -193,7 +190,7 @@ export default function IssueDetailPage() {
           <img 
             src={issue.image_url.startsWith('http') ? issue.image_url : `${API_URL}${issue.image_url}`}
             alt="Issue"
-            className="w-full h-64 object-cover"
+            classgetImageUrl(issue.image_url)
           />
           
           {/* Content */}

@@ -96,8 +96,6 @@ export default function AdminDashboard() {
   const [testEmailStatus, setTestEmailStatus] = useState<string | null>(null);
   const [savingDept, setSavingDept] = useState<string | null>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return {
@@ -107,12 +105,12 @@ export default function AdminDashboard() {
   };
 
   const handleExportCSV = () => {
-    window.open(`${API_URL}/analytics/export/issues`, '_blank');
+    window.open(`/api/analytics/export/issues`, '_blank');
   };
 
   const fetchPriorityIssues = async () => {
     try {
-      const res = await fetch(`${API_URL}/analytics/priority-issues?limit=5`);
+      const res = await fetch(`/api/analytics/priority-issues?limit=5`);
       if (res.ok) {
         const data = await res.json();
         setPriorityIssues(data.issues || []);
@@ -126,7 +124,7 @@ export default function AdminDashboard() {
   const fetchMockMails = async () => {
     setMailsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/admin/mock-mails`, { headers: getAuthHeaders() });
+      const res = await fetch(`/api/admin/mock-mails`, { headers: getAuthHeaders() });
       if (res.ok) setMockMails(await res.json());
     } catch (err) {
       console.error('Failed to fetch mails:', err);
@@ -137,7 +135,7 @@ export default function AdminDashboard() {
 
   const fetchMailDetail = async (id: number) => {
     try {
-      const res = await fetch(`${API_URL}/admin/mock-mails/${id}`, { headers: getAuthHeaders() });
+      const res = await fetch(`/api/admin/mock-mails/${id}`, { headers: getAuthHeaders() });
       if (res.ok) setSelectedMail(await res.json());
     } catch (err) {
       console.error('Failed to fetch mail detail:', err);
@@ -147,7 +145,7 @@ export default function AdminDashboard() {
   const clearMockMails = async () => {
     if (!confirm('Clear all mock emails?')) return;
     try {
-      await fetch(`${API_URL}/admin/mock-mails`, { method: 'DELETE', headers: getAuthHeaders() });
+      await fetch(`/api/admin/mock-mails`, { method: 'DELETE', headers: getAuthHeaders() });
       setMockMails([]);
       setSelectedMail(null);
     } catch (err) {
@@ -159,7 +157,7 @@ export default function AdminDashboard() {
   const fetchMailConfig = async () => {
     setConfigLoading(true);
     try {
-      const res = await fetch(`${API_URL}/admin/mail-config`, { headers: getAuthHeaders() });
+      const res = await fetch(`/api/admin/mail-config`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data: MailConfig = await res.json();
         setMailConfig(data);
@@ -181,7 +179,7 @@ export default function AdminDashboard() {
 
   const switchMailMode = async (mode: string) => {
     try {
-      const res = await fetch(`${API_URL}/admin/mail-config/mode`, {
+      const res = await fetch(`/api/admin/mail-config/mode`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ mode }),
@@ -196,7 +194,7 @@ export default function AdminDashboard() {
 
   const saveSmtpConfig = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/mail-config/smtp`, {
+      const res = await fetch(`/api/admin/mail-config/smtp`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(smtpForm),
@@ -213,7 +211,7 @@ export default function AdminDashboard() {
   const sendTestEmail = async () => {
     setTestEmailStatus('Sending…');
     try {
-      const res = await fetch(`${API_URL}/admin/mail-config/test`, {
+      const res = await fetch(`/api/admin/mail-config/test`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -229,7 +227,7 @@ export default function AdminDashboard() {
   const saveDeptEmail = async (dept: string) => {
     setSavingDept(dept);
     try {
-      const res = await fetch(`${API_URL}/admin/dept-emails/${dept}`, {
+      const res = await fetch(`/api/admin/dept-emails/${dept}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ email: deptEmailForm[dept] || '' }),

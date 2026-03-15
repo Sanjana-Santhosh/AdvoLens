@@ -58,8 +58,7 @@ export default function AnalyticsPage() {
 
   const fetchHotspots = async () => {
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${API_URL}/analytics/hotspots?status=null`);
+      const res = await fetch(`/api/analytics/hotspots?status=null`);
       if (res.ok) {
         const data = await res.json();
         setHotspots(data.hotspots || []);
