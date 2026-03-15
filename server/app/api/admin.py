@@ -5,9 +5,11 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core import runtime_config as cfg
 from app.models.user import User, UserRole, Department
 from app.models.issue import Issue
 from app.schemas.issue import IssueResponse
+from app.services.email_service import send_email
 
 router = APIRouter(tags=["admin"])
 
@@ -21,6 +23,22 @@ class DepartmentStats(BaseModel):
     total: int
     open: int
     resolved: int
+
+
+class MailModeRequest(BaseModel):
+    mode: str  # "mock" | "smtp"
+
+
+class SmtpConfigRequest(BaseModel):
+    host: str
+    port: int = 587
+    username: str
+    password: str
+    from_address: str
+
+
+class DeptEmailRequest(BaseModel):
+    email: str
 
 
 @router.get("/issues", response_model=List[IssueResponse])
@@ -169,3 +187,124 @@ def get_admin_stats(
         "user_department": current_user.department.value if current_user.department else None,
         "user_role": current_user.role.value
     }
+
+
+# ── Mail Config Endpoints (Super Admin only) ──────────────────────────────────
+
+def _require_super_admin(current_user: User) -> None:
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admins can manage email settings",
+        )
+
+
+@router.get("/mail-config")
+def get_mail_config(current_user: User = Depends(get_current_user)):
+    """Return current mail config with SMTP password masked."""
+    _require_super_admin(current_user)
+    return cfg.get_full_config()
+
+
+@router.put("/mail-config/mode")
+def set_mail_mode(
+    body: MailModeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle between mock and SMTP mail mode."""
+    _require_super_admin(current_user)
+    try:
+        cfg.set_mail_mode(body.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"mail_mode": cfg.get_mail_mode()}
+
+
+@router.put("/mail-config/smtp")
+def update_smtp_config(
+    body: SmtpConfigRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Update SMTP credentials. ⚠️ memory-only — cleared on restart."""
+    _require_super_admin(current_user)
+    cfg.set_smtp_config(
+        host=body.host,
+        port=body.port,
+        username=body.username,
+        password=body.password,
+        from_address=body.from_address,
+    )
+    result = cfg.get_full_config()
+    result["note"] = "⚠️ memory-only — cleared on restart"
+    return result
+
+
+@router.post("/mail-config/test")
+def send_test_email(current_user: User = Depends(get_current_user)):
+    """Send a test email to the super admin's own address."""
+    _require_super_admin(current_user)
+    recipient = current_user.email
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Super admin has no email address on record")
+    subject = "[AdvoLens] Test Email — Mail Config OK"
+    body = (
+        "<h2>✅ AdvoLens Email Test</h2>"
+        "<p>Your email configuration is working correctly.</p>"
+        f"<p><strong>Mode:</strong> {cfg.get_mail_mode()}</p>"
+    )
+    ok = send_email(recipient, subject, body)
+    return {"sent": ok, "recipient": recipient, "mode": cfg.get_mail_mode()}
+
+
+@router.put("/dept-emails/{dept}")
+def update_dept_email(
+    dept: str,
+    body: DeptEmailRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Update the alert email for a department. ⚠️ memory-only — cleared on restart."""
+    _require_super_admin(current_user)
+    valid_depts = {"municipality", "pwd", "kseb", "water_authority", "other"}
+    if dept not in valid_depts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid department. Must be one of: {', '.join(sorted(valid_depts))}",
+        )
+    cfg.set_dept_email(dept, body.email)
+    return {
+        "department": dept,
+        "email": body.email,
+        "note": "⚠️ memory-only — cleared on restart",
+    }
+
+
+# ── Mock Mail Log Endpoints (Super Admin only) ────────────────────────────────
+
+@router.get("/mock-mails")
+def list_mock_mails(current_user: User = Depends(get_current_user)):
+    """Return the full mock mail log, newest first (no HTML body)."""
+    _require_super_admin(current_user)
+    mails = cfg.get_mock_mails()
+    # Strip html_body for list view to keep response small
+    return [
+        {k: v for k, v in m.items() if k != "html_body"}
+        for m in mails
+    ]
+
+
+@router.get("/mock-mails/{mail_id}")
+def get_mock_mail(mail_id: int, current_user: User = Depends(get_current_user)):
+    """Return a single mock mail entry with full HTML body."""
+    _require_super_admin(current_user)
+    entry = cfg.get_mock_mail_by_id(mail_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Mock mail not found")
+    return entry
+
+
+@router.delete("/mock-mails")
+def clear_mock_mails(current_user: User = Depends(get_current_user)):
+    """Clear the mock mail log."""
+    _require_super_admin(current_user)
+    cfg.clear_mock_mails()
+    return {"message": "Mock mail log cleared"}

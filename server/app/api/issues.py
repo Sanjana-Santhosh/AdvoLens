@@ -5,6 +5,8 @@ from pydantic import BaseModel
 import shutil
 import os
 import secrets
+import base64
+import tempfile
 
 from app.core.database import get_db
 from app.schemas.issue import IssueResponse, IssueCreateResponse
@@ -29,6 +31,13 @@ TEMP_DIR = "/tmp"
 class StatusUpdate(BaseModel):
     """Schema for updating issue status"""
     status: str
+
+
+class PreCheckRequest(BaseModel):
+    """Body for the read-only duplicate pre-check endpoint"""
+    image_base64: str
+    latitude: float
+    longitude: float
 
 
 @router.post("/", response_model=IssueCreateResponse)
@@ -124,11 +133,16 @@ async def create_issue(
     
     # Add duplicate notification if detected
     if duplicate_of:
-        dup_message = (
-            f"A similar issue #{duplicate_of} already exists at the same location. Your report has been linked as a duplicate."
-            if is_definite_duplicate
-            else f"A similar issue #{duplicate_of} was found. Your report has still been recorded."
-        )
+        if is_definite_duplicate:
+            dup_message = (
+                f"A similar issue #{duplicate_of} already exists at the same location. "
+                f"Your report has been linked as a duplicate."
+            )
+        else:
+            dup_message = (
+                f"A similar issue #{duplicate_of} was found. "
+                f"Your report has still been recorded."
+            )
         dup_notification = Notification(
             issue_id=new_issue.id,
             type=NotificationType.DUPLICATE_DETECTED.value,
@@ -253,3 +267,89 @@ def update_issue_status(
         notify_issue_reopened(issue_id)
     
     return updated_issue
+
+
+@router.post("/pre-check")
+async def pre_check_duplicate(
+    body: PreCheckRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Read-only duplicate pre-check endpoint.
+
+    Runs CLIP + Faiss + PostGIS against the provided image and location
+    and returns similarity scores WITHOUT writing anything to the database
+    or mutating the Faiss index.
+
+    Body: { image_base64, latitude, longitude }
+    Returns: { visual_score, spatial_distance_m, matched_issue_id?,
+               matched_issue_title?, matched_issue_status?,
+               matched_thumbnail_url? }
+    """
+    # Decode the base64 image to a temp file
+    try:
+        image_data = base64.b64decode(body.image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", dir=TEMP_DIR, delete=False) as tmp:
+        tmp.write(image_data)
+        tmp_path = tmp.name
+
+    try:
+        # Generate CLIP embedding (read-only)
+        embedding = clip_service.get_embedding(tmp_path)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    if embedding is None:
+        raise HTTPException(status_code=500, detail="Could not process image")
+
+    # Visual similarity via Faiss (read-only search — no add)
+    visual_score: float = 0.0
+    visual_match_id: Optional[int] = None
+    similar = faiss_manager.search_similar(embedding, threshold=0.75, k=1)
+    if similar:
+        visual_match_id, visual_score = similar[0]
+
+    # Spatial duplicates within 50 m
+    nearby = find_nearby_issues(db, body.latitude, body.longitude, radius_meters=50)
+    # find_nearby_issues returns issues within the radius but doesn't expose exact distances.
+    # Return None to indicate "within 50 m" rather than an inaccurate 0.0.
+    spatial_distance_m: Optional[float] = None
+
+    # Build verdict
+    matched_issue = None
+    if visual_match_id:
+        matched_issue = crud_issue.get_issue(db, issue_id=visual_match_id)
+
+    # Determine score label
+    if visual_score >= 0.92:
+        score_label = "🔴 Very High Similarity"
+    elif visual_score >= 0.75:
+        score_label = "🟡 Moderate Similarity"
+    else:
+        score_label = "🟢 Low — likely a new issue"
+
+    is_likely_duplicate = visual_score >= 0.92 and (spatial_distance_m is not None or nearby)
+
+    return {
+        "visual_score": round(visual_score, 4),
+        "score_label": score_label,
+        "spatial_distance_m": spatial_distance_m,
+        "nearby_count": len(nearby),
+        "is_likely_duplicate": is_likely_duplicate,
+        "verdict": "⚠️ Likely Duplicate" if is_likely_duplicate else "✅ Likely New Issue",
+        "matched_issue_id": matched_issue.id if matched_issue else None,
+        "matched_issue_title": matched_issue.caption if matched_issue else None,
+        "matched_issue_status": matched_issue.status if matched_issue else None,
+        "matched_thumbnail_url": matched_issue.image_url if matched_issue else None,
+        "matched_department": (
+            matched_issue.department.value
+            if matched_issue and hasattr(matched_issue.department, "value")
+            else (str(matched_issue.department) if matched_issue else None)
+        ),
+    }
