@@ -757,7 +757,7 @@ export default function AdminDashboard() {
                           disabled={savingDept === dept.value}
                           className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:bg-gray-400 flex-shrink-0"
                         >
-                          {savingDept === dept.value ? '…' : 'Save ⚠️'}
+                          {savingDept === dept.value ? 'Saving...' : 'Save ⚠️'}
                         </button>
                       </div>
                     ))}

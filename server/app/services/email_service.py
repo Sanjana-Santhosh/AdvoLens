@@ -30,7 +30,10 @@ def _send_mock(recipient: str, subject: str, body: str, dept: str, issue_id: int
 
 
 def _send_smtp(recipient: str, subject: str, body: str, issue_id: int) -> bool:
-    """Send via smtplib using credentials from runtime config."""
+    """Send via smtplib using credentials from runtime config.
+
+    Supports both SSL (port 465) and STARTTLS (port 587 or 25).
+    """
     smtp = cfg.get_smtp_config()
     if not smtp.get("username") or not smtp.get("password"):
         logger.warning("[SMTP ⚠️ ] Credentials not set — skipping send to %s", recipient)
@@ -42,11 +45,19 @@ def _send_smtp(recipient: str, subject: str, body: str, issue_id: int) -> bool:
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "html"))
 
+    host = smtp["host"]
+    port = smtp["port"]
+
     try:
-        with smtplib.SMTP(smtp["host"], smtp["port"]) as server:
-            server.starttls()
-            server.login(smtp["username"], smtp["password"])
-            server.send_message(msg)
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port) as server:
+                server.login(smtp["username"], smtp["password"])
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port) as server:
+                server.starttls()
+                server.login(smtp["username"], smtp["password"])
+                server.send_message(msg)
         logger.info("[SMTP ✅ ] Sent → %s | Issue #%d", recipient, issue_id)
         return True
     except Exception as exc:

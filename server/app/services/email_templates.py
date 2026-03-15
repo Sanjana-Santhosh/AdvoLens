@@ -29,7 +29,7 @@ def build_new_issue_email(
         else "📍 Location not available"
     )
     coords_text = (
-        f"{lat:.4f}° N, {lon:.4f}° E"
+        f"{abs(lat):.4f}° {'N' if lat >= 0 else 'S'}, {abs(lon):.4f}° {'E' if lon >= 0 else 'W'}"
         if lat is not None and lon is not None
         else "—"
     )

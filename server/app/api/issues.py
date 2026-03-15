@@ -317,10 +317,9 @@ async def pre_check_duplicate(
 
     # Spatial duplicates within 50 m
     nearby = find_nearby_issues(db, body.latitude, body.longitude, radius_meters=50)
+    # find_nearby_issues returns issues within the radius but doesn't expose exact distances.
+    # Return None to indicate "within 50 m" rather than an inaccurate 0.0.
     spatial_distance_m: Optional[float] = None
-    if nearby:
-        # Return distance to closest nearby issue
-        spatial_distance_m = 0.0  # within 50 m — exact distance not stored in find_nearby_issues
 
     # Build verdict
     matched_issue = None
