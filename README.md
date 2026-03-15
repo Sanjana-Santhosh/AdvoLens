@@ -5,7 +5,7 @@
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-PostGIS-blue?logo=postgresql)](https://postgis.net)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL_14%2B-PostGIS_3-blue?logo=postgresql)](https://postgis.net)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker)](https://docker.com)
 
 ---
@@ -13,6 +13,7 @@
 ## 📋 Table of Contents
 
 - [Overview](#-overview)
+- [Supported Features](#-supported-features)
 - [Team](#-team)
 - [Problem Statement](#-problem-statement)
 - [Key Features](#-key-features)
@@ -28,13 +29,141 @@
 
 AdvoLens is an AI-powered platform that enables citizens to report civic issues — garbage, damaged roads, broken streetlights, clogged drains — through simple image-based submissions from their mobile phones. The platform uses computer vision and machine learning to automatically **analyze**, **categorize**, **deduplicate**, and **route** issues to the correct municipal department, while giving citizens real-time tracking of their reports.
 
+```mermaid
+flowchart TD
+    subgraph CITIZEN ["👤 Citizen"]
+        A([📸 Take Photo\n+ Share GPS]) --> B[Submit Report]
+    end
+
+    subgraph AI ["🤖 AI Pipeline"]
+        B --> C[☁️ Upload to\nCloudinary]
+        B --> D[CLIP\nImage Embedding]
+        B --> E[Gemini Vision\nCaption + Tags]
+        D --> F{🔍 Visual\nDuplicate?\nFaiss > 0.92}
+        B --> G{📍 Nearby Issue?\nPostGIS < 50m}
+        F & G --> H{Both match?}
+        H -- Yes --> I[⚠️ Definite\nDuplicate]
+        H -- No / One match --> J[📋 New Issue\nFlagged]
+        E --> K[🏛️ Auto-assign\nDepartment]
+    end
+
+    subgraph STORE ["🗄️ Persist"]
+        I & J --> L[(PostgreSQL\n+ PostGIS)]
+        L --> M[🔔 Citizen\nNotification]
+        L --> N[📧 Email to\nDept Official]
+        L --> O[Add to\nFaiss Index]
+    end
+
+    subgraph CITIZEN2 ["👤 Citizen Follow-up"]
+        M --> P[Track via\nToken 🔑]
+        P --> Q[Upvote /\nComment]
+    end
+
+    subgraph ADMIN ["🏛️ Admin Portal"]
+        L --> R[Dashboard\nReview Issues]
+        R --> S[Update Status\nOpen → Resolved]
+        S --> M
+        R --> T[📊 Analytics\nHotspot Map]
+        R --> U[🔄 Reassign\nDepartment]
+    end
 ```
-Citizen takes a photo  →  AI analyzes the image  →  Auto-assigned to department
-         ↓                                                      ↓
-  Tracking token issued  ←  Duplicate check  ←  Notification sent to officials
-         ↓
-  Real-time status updates via notifications
-```
+
+---
+
+## ✅ Supported Features
+
+### 📸 Issue Reporting
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Photo upload from camera or gallery | ✅ | `<input capture="environment">` for direct camera |
+| Automatic GPS location capture | ✅ | Browser Geolocation API |
+| Manual coordinate entry fallback | ✅ | For non-HTTPS / permission-denied cases |
+| Optional description / title | ✅ | Auto-filled by Gemini if omitted |
+| Image stored on Cloudinary CDN | ✅ | Permanent public URL returned |
+| Anonymous submission (no account needed) | ✅ | Citizen identified only by tracking token |
+| Tracking token issued on submission | ✅ | Saved to `localStorage` for follow-up |
+
+### 🤖 AI / ML Pipeline
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Automatic image captioning | ✅ | Gemini 2.5 Flash Lite |
+| Multi-label issue tagging | ✅ | Gemini generates structured JSON tags |
+| 512-dim visual embedding | ✅ | CLIP `openai/clip-vit-base-patch32` |
+| Visual duplicate detection | ✅ | Faiss cosine similarity, threshold 0.92 |
+| Spatial duplicate detection | ✅ | PostGIS radius query within 50 m |
+| Combined dual-signal deduplication | ✅ | Both visual + spatial must match for definite duplicate |
+| Auto department assignment | ✅ | Tag-based routing to Municipality / PWD / KSEB / Water Authority |
+| Issue priority scoring | ✅ | Formula: votes × 10 + status bonus − age penalty |
+
+### 🗺️ Community & Maps
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Public issues feed | ✅ | All issues listed, newest first |
+| Interactive Leaflet map | ✅ | Marker pins colour-coded by status |
+| Issue detail page | ✅ | Full photo, caption, tags, location, comments |
+| Visually similar issues panel | ✅ | Faiss-powered "similar reports" list |
+| Community upvoting | ✅ | One vote per citizen token per issue |
+| Community downvoting | ✅ | Lowers priority score |
+| Public comments | ✅ | Anonymous threaded comments per issue |
+| Comment deletion by author | ✅ | Token-verified delete |
+
+### 🔔 Notifications
+| Feature | Status | Notes |
+|---------|--------|-------|
+| In-app notification on issue created | ✅ | Includes assigned department |
+| In-app notification on duplicate detected | ✅ | Links to the original issue |
+| In-app notification on status change | ✅ | Triggered by admin status update |
+| In-app notification on issue resolved | ✅ | Celebratory resolved message |
+| Unread badge count | ✅ | `GET /notifications/count` |
+| Mark single notification as read | ✅ | Per-notification PATCH endpoint |
+| Mark all notifications as read | ✅ | Bulk PATCH endpoint |
+| Email alert to department on new issue | ✅ | SMTP via Gmail (optional) |
+
+### 🏛️ Admin Portal
+| Feature | Status | Notes |
+|---------|--------|-------|
+| JWT-based admin login | ✅ | OAuth2 password flow |
+| Role-based access control | ✅ | `super_admin` vs `official` roles |
+| Department-scoped issue view | ✅ | Officials see only their dept issues |
+| Issue status management | ✅ | Open → In Progress → Resolved → Closed |
+| Issue reassignment to another dept | ✅ | Super Admin only |
+| Issue deletion (spam removal) | ✅ | Super Admin only |
+| Create new official / admin users | ✅ | Super Admin only, via API |
+| Dashboard statistics cards | ✅ | Total, Open, In Progress, Resolved |
+| Department breakdown stats | ✅ | Super Admin gets per-dept counts |
+
+### 📊 Analytics
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Geographic hotspot detection | ✅ | DBSCAN clustering (configurable radius + min samples) |
+| Hotspot map layer | ✅ | Cluster circles on Leaflet map |
+| Issue heatmap data | ✅ | GeoJSON `[lon, lat, intensity]` for Mapbox/Leaflet |
+| Analytics summary overview | ✅ | Top 10 hotspots + department breakdown |
+| Priority issue rankings | ✅ | Sorted by priority score, up to top 50 |
+| CSV export of all issues | ✅ | Filtered by status and/or department |
+
+### 🔐 Security & Auth
+| Feature | Status | Notes |
+|---------|--------|-------|
+| JWT access tokens (HS256) | ✅ | Configurable secret key |
+| Bcrypt password hashing | ✅ | Via passlib |
+| Role-based endpoint guards | ✅ | `get_current_user` FastAPI dependency |
+| CORS allowlist | ✅ | Localhost + Vercel production origins |
+| Citizen anonymity | ✅ | No PII stored, token is random URL-safe string |
+
+### 🚀 Infrastructure & DevOps
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Docker containerisation | ✅ | `server/Dockerfile` with CPU PyTorch |
+| Docker Hub image registry | ✅ | `sanjanamsanthoshsct/advolens-backend` |
+| GitHub Actions CI/CD | ✅ | Manual trigger build-and-push workflow |
+| Watchtower auto-deploy on VPS | ✅ | Polls Docker Hub every 5 minutes |
+| Render.com config | ✅ | `render.yaml` included |
+| Alembic database migrations | ✅ | 5 versioned migration scripts |
+| Health check endpoint | ✅ | `GET /health` for Docker / load balancer |
+| Database seeding scripts | ✅ | `seed_data.py` + `create_admin.py` |
+| VPS management scripts | ✅ | `scripts/vps-commands.sh` |
+| Progressive Web App (PWA) | ✅ | Installable, service worker, offline cache |
 
 ---
 
