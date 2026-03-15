@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Bell, CheckCircle, AlertCircle, Info, Copy, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Bell, CheckCircle, AlertCircle, Info, Copy, ArrowLeft, RefreshCw, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 
 interface Notification {
@@ -18,9 +18,31 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
+  // Cross-device token claiming
+  const [showClaimSection, setShowClaimSection] = useState(false);
+  const [claimInput, setClaimInput] = useState('');
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [claimPreview, setClaimPreview] = useState<{
+    issue_count: number;
+    statuses: string[];
+    last_activity: string | null;
+  } | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [savedTokens, setSavedTokens] = useState<string[]>([]);
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
   useEffect(() => {
     const savedToken = localStorage.getItem('tracking_token');
     setToken(savedToken);
+
+    // Load additional saved tokens (for cross-device claiming)
+    try {
+      const stored = localStorage.getItem('saved_tokens');
+      if (stored) setSavedTokens(JSON.parse(stored));
+    } catch {
+      // ignore parse errors
+    }
     
     if (savedToken) {
       fetchNotifications(savedToken);
@@ -66,6 +88,38 @@ export default function NotificationsPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const previewClaimToken = async () => {
+    if (!claimInput.trim()) return;
+    setClaimLoading(true);
+    setClaimError(null);
+    setClaimPreview(null);
+    try {
+      const res = await fetch(`${API_URL}/citizen/token/${encodeURIComponent(claimInput.trim())}/summary`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || 'Token not found');
+      }
+      const data = await res.json();
+      setClaimPreview(data);
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : 'Failed to look up token');
+    } finally {
+      setClaimLoading(false);
+    }
+  };
+
+  const claimToken = () => {
+    const t = claimInput.trim();
+    if (!t || t === token) return;
+    const updated = Array.from(new Set([...savedTokens, t]));
+    setSavedTokens(updated);
+    localStorage.setItem('saved_tokens', JSON.stringify(updated));
+    setClaimInput('');
+    setClaimPreview(null);
+    setShowClaimSection(false);
+    alert(`✅ Token claimed! ${updated.length} token(s) now saved on this device.`);
   };
 
   const getNotificationIcon = (type: string) => {
@@ -169,6 +223,85 @@ export default function NotificationsPage() {
             <p className="text-xs text-blue-500 mt-2">
               Save this token to track your reports on any device.
             </p>
+
+            {/* Explainer link */}
+            <Link
+              href="/how-it-works/token"
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-2"
+            >
+              <HelpCircle size={12} />
+              How does my token work?
+            </Link>
+
+            {/* Cross-device claim section */}
+            <div className="mt-3 border-t border-blue-200 pt-3">
+              <button
+                onClick={() => setShowClaimSection(!showClaimSection)}
+                className="flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900"
+              >
+                {showClaimSection ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                Submitted from another device?
+              </button>
+
+              {showClaimSection && (
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs text-blue-600">
+                    Enter a token from another device to merge your reports here.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={claimInput}
+                      onChange={(e) => {
+                        setClaimInput(e.target.value);
+                        setClaimPreview(null);
+                        setClaimError(null);
+                      }}
+                      placeholder="Enter your token here..."
+                      className="flex-1 text-xs border border-blue-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                    />
+                    <button
+                      onClick={previewClaimToken}
+                      disabled={claimLoading || !claimInput.trim()}
+                      className="px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                    >
+                      {claimLoading ? '...' : 'Preview'}
+                    </button>
+                  </div>
+
+                  {claimError && (
+                    <p className="text-xs text-red-600">{claimError}</p>
+                  )}
+
+                  {claimPreview && (
+                    <div className="bg-white border border-blue-200 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Token Preview</p>
+                      <p className="text-xs text-gray-600">{claimPreview.issue_count} issue(s) found</p>
+                      {claimPreview.last_activity && (
+                        <p className="text-xs text-gray-500">
+                          Last activity: {new Date(claimPreview.last_activity).toLocaleDateString()}
+                        </p>
+                      )}
+                      <button
+                        onClick={claimToken}
+                        className="mt-2 w-full py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                      >
+                        ✅ Claim This Token
+                      </button>
+                    </div>
+                  )}
+
+                  {savedTokens.length > 0 && (
+                    <div className="bg-white border border-blue-100 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">Saved Tokens ({savedTokens.length})</p>
+                      {savedTokens.map((t) => (
+                        <p key={t} className="text-xs font-mono text-gray-500 truncate">{t}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

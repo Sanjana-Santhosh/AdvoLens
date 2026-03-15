@@ -9,6 +9,7 @@ from app.api.admin import router as admin_router
 from app.api.notifications import router as notifications_router
 from app.api.analytics import router as analytics_router
 from app.api.engagement import router as engagement_router
+from app.api.citizen import router as citizen_router
 
 
 @asynccontextmanager
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router, prefix="/notifications")
     app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
     app.include_router(engagement_router, prefix="/issues", tags=["engagement"])
+    app.include_router(citizen_router, prefix="/citizen", tags=["citizen"])
 
     # Health check endpoint for Docker/Kubernetes
     @app.get("/health", tags=["health"])

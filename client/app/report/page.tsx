@@ -2,8 +2,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createIssue } from '@/lib/api';
-import { Camera, MapPin, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { Camera, MapPin, ArrowLeft, AlertTriangle, Search } from 'lucide-react';
 import Link from 'next/link';
+import DuplicateCheckModal from '@/components/DuplicateCheckModal';
 
 export default function ReportPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -15,6 +16,7 @@ export default function ReportPage() {
   const [manualLocation, setManualLocation] = useState(false);
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
+  const [showDupModal, setShowDupModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check if geolocation is available on mount
@@ -94,14 +96,15 @@ export default function ReportPage() {
   };
 
   // Handle Submit
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!file || !location) {
       alert("Please add photo and location!");
       return;
     }
 
     setLoading(true);
+    setShowDupModal(false);
     const formData = new FormData();
     formData.append('image', file);
     formData.append('lat', location.lat.toString());
@@ -119,17 +122,14 @@ export default function ReportPage() {
         localStorage.setItem('tracking_token', res.tracking_token);
       }
       
-      // Show success message with department info
-      const deptLabel = res.department?.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Unknown';
-      alert(`✅ Report Submitted!\n\nIssue ID: #${res.id}\nDepartment: ${deptLabel}\nCaption: ${res.caption}\nTags: ${res.tags?.join(', ') || 'None'}\n\nYour tracking token has been saved. Check "My Updates" to track progress!`);
-      
-      // Reset form
-      setFile(null);
-      setLocation(null);
-      setDescription('');
-      
-      // Redirect to notifications page
-      router.push('/notifications');
+      // Redirect to confirmation page with issue details
+      const params = new URLSearchParams({
+        id: res.id,
+        dept: res.department || '',
+        token: res.tracking_token || '',
+        ...(res.duplicate_of ? { duplicate_of: String(res.duplicate_of) } : {}),
+      });
+      router.push(`/report/confirmation?${params.toString()}`);
     } catch (err) {
       console.error(err);
       alert("Failed to report. Please try again.");
@@ -293,6 +293,19 @@ export default function ReportPage() {
               )}
             </div>
 
+            {/* Optional Duplicate Check */}
+            {file && location && (
+              <button
+                type="button"
+                onClick={() => setShowDupModal(true)}
+                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-blue-300 text-blue-700 bg-blue-50 rounded-xl font-medium hover:bg-blue-100 transition-colors"
+              >
+                <Search size={18} />
+                🔍 Check for Similar Issues
+                <span className="text-xs text-blue-500 font-normal">(optional)</span>
+              </button>
+            )}
+
             {/* Submit Button */}
             <button 
               type="submit" 
@@ -319,6 +332,17 @@ export default function ReportPage() {
           Your report will be analyzed by AI to automatically categorize and prioritize the issue.
         </p>
       </div>
+
+      {/* Duplicate Check Modal */}
+      {showDupModal && file && location && (
+        <DuplicateCheckModal
+          imageFile={file}
+          latitude={location.lat}
+          longitude={location.lon}
+          onClose={() => setShowDupModal(false)}
+          onSubmitAnyway={() => handleSubmit()}
+        />
+      )}
     </div>
   );
 }
