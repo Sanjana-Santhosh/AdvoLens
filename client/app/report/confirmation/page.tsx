@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle, Copy, Bell, ArrowRight, HelpCircle } from 'lucide-react';
 import Link from 'next/link';
 
-export default function ConfirmationPage() {
+function ConfirmationPageContent() {
   const searchParams = useSearchParams();
   const [copied, setCopied] = useState(false);
 
@@ -111,5 +111,19 @@ export default function ConfirmationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConfirmationPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="text-sm text-gray-600">Loading confirmation...</div>
+        </div>
+      }
+    >
+      <ConfirmationPageContent />
+    </Suspense>
   );
 }
