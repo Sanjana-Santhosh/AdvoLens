@@ -476,7 +476,7 @@ sequenceDiagram
 | Gemini (API) | <1s | <1s |
 | Total cold start | ~60s | ~6s |
 
-> **Note:** On production (Render.com with persistent disk), the CLIP model is cached after the first download. Faiss index is also persisted across deployments if using a mounted volume.
+> **Note:** On the VPS deployment (Docker + Watchtower), the CLIP model is cached after the first download as long as the container volume is mounted. The Faiss index is also persisted across redeploys via a mounted host directory — see [docs/deployment.md](./deployment.md#option-4-vps-with-docker--watchtower).
 
 ---
 

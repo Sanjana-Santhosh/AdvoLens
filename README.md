@@ -19,6 +19,7 @@
 - [Key Features](#-key-features)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
+- [Deploying to Production](#-deploying-to-production)
 - [Project Structure](#-project-structure)
 - [Documentation](#-documentation)
 - [License](#-license)
@@ -303,6 +304,45 @@ cd server
 docker build -t advolens-backend .
 docker run -p 8000:8000 --env-file .env advolens-backend
 ```
+
+---
+
+## 🚢 Deploying to Production
+
+### Frontend — Vercel (automatic)
+
+Vercel watches the `main` branch and redeploys automatically on every merge. Nothing extra to do.
+
+```
+Push / merge to main  →  Vercel detects change  →  Rebuilds & redeploys  ✅
+```
+
+### Backend — VPS via GitHub Actions + Watchtower
+
+The backend runs inside a Docker container on a VPS. Deployment is a two-step manual process:
+
+```mermaid
+flowchart LR
+    A[1️⃣ Push & merge\nchanges to main] --> B[2️⃣ Go to GitHub Actions\n'Build and Push Docker Image']
+    B --> C[3️⃣ Click 'Run workflow'\noptionally set a tag]
+    C --> D[GitHub Actions builds\nlinux/amd64 Docker image]
+    D --> E[Image pushed to\nDocker Hub]
+    E --> F[⏱️ Watchtower on VPS\npolls Docker Hub every 5 min]
+    F --> G[Pulls new image\n& restarts container ✅]
+```
+
+**Step-by-step:**
+
+1. **Merge your changes** into `main` on GitHub.
+
+2. **Trigger the workflow** — go to:  
+   `GitHub → Actions → Build and Push Docker Image → Run workflow`  
+   Leave the tag as `latest` (or enter a version like `v1.2.0`).
+
+3. **Wait ~5 minutes** — Watchtower running on the VPS polls Docker Hub on a 5-minute interval. Once it sees the new `latest` image it pulls it and restarts the `advolens-backend` container automatically. No SSH required.
+
+> **Watchtower** is a lightweight Docker container that watches your other containers and keeps them up to date — see [containrrr/watchtower](https://containrrr.dev/watchtower/).  
+> Full setup details: [docs/deployment.md](./docs/deployment.md#option-4-vps-with-docker--watchtower)
 
 ---
 
