@@ -1,13 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List, Optional
 from pydantic import BaseModel
+import os
+import secrets
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core import runtime_config as cfg
 from app.models.user import User, UserRole, Department
 from app.models.issue import Issue
+from app.models.engagement import Vote, Comment
+from app.models.notification import Notification
+from app.ml.clip_service import clip_service
+from app.ml.faiss_manager import faiss_manager
+from app.core.ml_debug_log import (
+    MAX_ML_DEBUG_LOGS,
+    clear_ml_debug_logs,
+    get_ml_debug_log_count,
+    get_ml_debug_logs,
+)
 from app.schemas.issue import IssueResponse
 from app.services.email_service import send_email
 
@@ -39,6 +53,64 @@ class SmtpConfigRequest(BaseModel):
 
 class DeptEmailRequest(BaseModel):
     email: str
+
+
+class ClearDbRequest(BaseModel):
+    confirm_phrase: str
+    include_users: bool = True
+
+
+maintenance_basic = HTTPBasic()
+
+SEEDED_USER_EMAILS = {
+    "admin@advolens.com",
+    "municipality@advolens.com",
+    "pwd@advolens.com",
+    "kseb@advolens.com",
+    "water@advolens.com",
+    "admin@advolens.gov",
+    "municipality@advolens.gov",
+    "pwd@advolens.gov",
+    "kseb@advolens.gov",
+    "water@advolens.gov",
+}
+
+SEEDED_ISSUE_TITLES = {
+    "Garbage pile on MG Road",
+    "Pothole on Highway",
+    "Broken Streetlight",
+    "Water Pipeline Leak",
+}
+
+
+def require_maintenance_basic_auth(
+    credentials: HTTPBasicCredentials = Depends(maintenance_basic),
+) -> str:
+    """
+    Extra safety layer for dangerous maintenance endpoints.
+    Set MAINTENANCE_BASIC_USER and MAINTENANCE_BASIC_PASS in env.
+    """
+    expected_user = os.getenv("MAINTENANCE_BASIC_USER")
+    expected_pass = os.getenv("MAINTENANCE_BASIC_PASS")
+
+    if not expected_user or not expected_pass:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Maintenance basic auth is not configured on server",
+        )
+
+    is_valid = (
+        secrets.compare_digest(credentials.username, expected_user)
+        and secrets.compare_digest(credentials.password, expected_pass)
+    )
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid maintenance credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return credentials.username
 
 
 @router.get("/issues", response_model=List[IssueResponse])
@@ -308,3 +380,155 @@ def clear_mock_mails(current_user: User = Depends(get_current_user)):
     _require_super_admin(current_user)
     cfg.clear_mock_mails()
     return {"message": "Mock mail log cleared"}
+
+
+@router.get("/ml-debug-logs")
+def list_ml_debug_logs(
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return latest in-memory ML debug logs (newest first).
+    Retains only the last 100 entries.
+    """
+    _require_super_admin(current_user)
+    safe_limit = max(1, min(limit, MAX_ML_DEBUG_LOGS))
+    return {
+        "total": get_ml_debug_log_count(),
+        "limit": safe_limit,
+        "max_retention": MAX_ML_DEBUG_LOGS,
+        "logs": get_ml_debug_logs(limit=safe_limit),
+    }
+
+
+@router.delete("/ml-debug-logs")
+def clear_ml_logs(current_user: User = Depends(get_current_user)):
+    """Clear in-memory ML debug logs."""
+    _require_super_admin(current_user)
+    clear_ml_debug_logs()
+    return {"message": "ML debug logs cleared"}
+
+
+# ── Maintenance Endpoints (Super Admin + Basic Auth) ─────────────────────────
+
+@router.post("/maintenance/rebuild-faiss")
+def rebuild_faiss_index(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: str = Depends(require_maintenance_basic_auth),
+):
+    """
+    Rebuild the Faiss index from current DB issues.
+    Uses issue image URLs to regenerate embeddings.
+    """
+    _require_super_admin(current_user)
+
+    issues = db.query(Issue).filter(Issue.image_url.isnot(None)).all()
+
+    # Reset in-memory index first, then persist once at the end.
+    faiss_manager.reset_index(persist=False)
+
+    indexed = 0
+    skipped = 0
+    for issue in issues:
+        embedding = clip_service.get_embedding(issue.image_url)
+        if embedding is None:
+            skipped += 1
+            continue
+        faiss_manager.add_vector(embedding, issue.id, persist=False)
+        indexed += 1
+
+    faiss_manager.save_index()
+
+    return {
+        "message": "Faiss index rebuilt",
+        "total_issues": len(issues),
+        "indexed": indexed,
+        "skipped": skipped,
+        "index_size": int(faiss_manager.index.ntotal),
+    }
+
+
+@router.post("/maintenance/clear-db")
+def clear_database_data(
+    body: ClearDbRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: str = Depends(require_maintenance_basic_auth),
+):
+    """
+    Danger zone: clears application data from DB.
+    Seeded users/issues are preserved.
+    Requires confirm_phrase == "DELETE ALL DATA".
+    """
+    _require_super_admin(current_user)
+
+    if body.confirm_phrase != "DELETE ALL DATA":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Invalid confirm_phrase. Use exactly: "DELETE ALL DATA"',
+        )
+
+    deleted_counts: dict[str, int] = {}
+    preserved_counts: dict[str, int] = {}
+    try:
+        seeded_issues_query = db.query(Issue).filter(
+            or_(
+                Issue.citizen_token.like("demo_token_%"),
+                Issue.title.in_(SEEDED_ISSUE_TITLES),
+            )
+        )
+        seeded_issue_ids = [issue.id for issue in seeded_issues_query.all()]
+        preserved_counts["issues"] = len(seeded_issue_ids)
+
+        comments_query = db.query(Comment)
+        votes_query = db.query(Vote)
+        notifications_query = db.query(Notification)
+        issues_query = db.query(Issue)
+
+        if seeded_issue_ids:
+            comments_query = comments_query.filter(~Comment.issue_id.in_(seeded_issue_ids))
+            votes_query = votes_query.filter(~Vote.issue_id.in_(seeded_issue_ids))
+            notifications_query = notifications_query.filter(~Notification.issue_id.in_(seeded_issue_ids))
+            issues_query = issues_query.filter(~Issue.id.in_(seeded_issue_ids))
+
+        deleted_counts["comments"] = comments_query.count()
+        comments_query.delete(synchronize_session=False)
+
+        deleted_counts["votes"] = votes_query.count()
+        votes_query.delete(synchronize_session=False)
+
+        deleted_counts["notifications"] = notifications_query.count()
+        notifications_query.delete(synchronize_session=False)
+
+        deleted_counts["issues"] = issues_query.count()
+        issues_query.delete(synchronize_session=False)
+
+        if body.include_users:
+            users_query = db.query(User).filter(~User.email.in_(SEEDED_USER_EMAILS))
+            deleted_counts["users"] = users_query.count()
+            users_query.delete(synchronize_session=False)
+            preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+        else:
+            deleted_counts["users"] = 0
+            preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear database: {exc}",
+        )
+
+    # Keep search/index state aligned with cleared DB.
+    faiss_manager.reset_index(persist=True)
+    cfg.clear_mock_mails()
+
+    return {
+        "message": "Database data cleared",
+        "note": "Seeded users and seeded sample issues were preserved",
+        "include_users": body.include_users,
+        "deleted": deleted_counts,
+        "preserved": preserved_counts,
+    }

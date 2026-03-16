@@ -4,6 +4,7 @@ from PIL import Image
 import os
 import json
 from dotenv import load_dotenv
+from app.core.ml_debug_log import add_ml_debug_log
 
 load_dotenv()
 
@@ -14,13 +15,26 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 class GeminiService:
     def __init__(self):
         self.model_name = "gemini-2.5-flash-lite"
-        print("Gemini Vision service initialized")
+        print("Custom model service initialized")
+        add_ml_debug_log(
+            component="custom",
+            operation="init",
+            message="Custom model service initialized",
+            details={"model_name": self.model_name},
+        )
 
     def analyze_image(self, image_path: str) -> dict:
         """
         Get both caption and tags from a single Gemini call.
         Returns: dict with 'caption' and 'tags' keys
         """
+        image_name = os.path.basename(image_path)
+        add_ml_debug_log(
+            component="custom",
+            operation="analyze_image",
+            message="Custom model image analysis started",
+            details={"image": image_name, "model_name": self.model_name},
+        )
         try:
             # Read image as bytes
             with open(image_path, "rb") as f:
@@ -84,13 +98,37 @@ Example for streetlight issue:
                 text = text.strip()
             
             result = json.loads(text)
+            add_ml_debug_log(
+                component="custom",
+                operation="analyze_image",
+                message="Custom model image analysis completed",
+                details={
+                    "image": image_name,
+                    "tags_count": len(result.get("tags", [])),
+                    "has_caption": bool(result.get("caption")),
+                },
+            )
             return result
 
         except json.JSONDecodeError as e:
-            print(f"Gemini JSON parse error: {e}, raw: {response.text}")
+            print(f"Custom model JSON parse error: {e}, raw: {response.text}")
+            add_ml_debug_log(
+                component="custom",
+                operation="analyze_image",
+                level="ERROR",
+                message="Custom model response JSON parse failed",
+                details={"image": image_name, "error": str(e)},
+            )
             return {"caption": "Unable to parse image analysis", "tags": ["other"]}
         except Exception as e:
-            print(f"Gemini error: {e}")
+            print(f"Custom model error: {e}")
+            add_ml_debug_log(
+                component="custom",
+                operation="analyze_image",
+                level="ERROR",
+                message="Custom model analysis failed",
+                details={"image": image_name, "error": str(e)},
+            )
             return {"caption": "Unable to analyze image", "tags": ["other"]}
 
 

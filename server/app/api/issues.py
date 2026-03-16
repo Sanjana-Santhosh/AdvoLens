@@ -7,6 +7,7 @@ import os
 import secrets
 import base64
 import tempfile
+import numpy as np
 
 from app.core.database import get_db
 from app.schemas.issue import IssueResponse, IssueCreateResponse
@@ -20,6 +21,7 @@ from app.services.cloudinary_service import upload_image
 from app.services.email_service import notify_new_issue
 from app.services.geo_service import find_nearby_issues
 from app.models.notification import Notification, NotificationType
+from app.core.ml_debug_log import add_ml_debug_log
 
 
 router = APIRouter(tags=["issues"])
@@ -49,6 +51,13 @@ async def create_issue(
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    add_ml_debug_log(
+        component="issues_api",
+        operation="create_issue",
+        message="Issue creation started",
+        details={"filename": image.filename, "lat": lat, "lon": lon},
+    )
+
     # 1. Generate tracking token for anonymous citizen
     tracking_token = secrets.token_urlsafe(16)
     
@@ -61,7 +70,21 @@ async def create_issue(
     cloud_url = upload_image(temp_path)
     if not cloud_url:
         os.remove(temp_path)
+        add_ml_debug_log(
+            component="issues_api",
+            operation="create_issue",
+            level="ERROR",
+            message="Image upload failed",
+            details={"filename": image.filename},
+        )
         raise HTTPException(status_code=500, detail="Image upload failed")
+
+    add_ml_debug_log(
+        component="issues_api",
+        operation="create_issue",
+        message="Image upload completed",
+        details={"filename": image.filename},
+    )
 
     # 4. AI Analysis (CLIP for embeddings, Gemini for captioning)
     embedding = clip_service.get_embedding(temp_path)
@@ -77,6 +100,12 @@ async def create_issue(
         if similar_issues:
             visual_duplicate_id, score = similar_issues[0]
             print(f"👁️ Visual duplicate candidate: Issue #{visual_duplicate_id} with score {score:.3f}")
+            add_ml_debug_log(
+                component="issues_api",
+                operation="duplicate_check",
+                message="Visual duplicate candidate found",
+                details={"matched_issue_id": visual_duplicate_id, "score": round(float(score), 4)},
+            )
 
     # 7. Check for Spatial Duplicates (within 50m)
     spatial_duplicates = find_nearby_issues(db, lat, lon, radius_meters=50)
@@ -99,9 +128,27 @@ async def create_issue(
         # Spatial match only - note it but don't flag as duplicate
         print(f"📍 Nearby issues found within 50m: {spatial_duplicate_ids}")
 
+    add_ml_debug_log(
+        component="issues_api",
+        operation="duplicate_check",
+        message="Duplicate evaluation completed",
+        details={
+            "visual_duplicate_id": visual_duplicate_id,
+            "nearby_count": len(spatial_duplicate_ids),
+            "is_definite_duplicate": is_definite_duplicate,
+            "duplicate_of": duplicate_of,
+        },
+    )
+
     # 9. AUTO-ASSIGN DEPARTMENT based on AI tags
     assigned_dept = assign_department(gemini_result.get('tags', []))
     print(f"🏛️ Auto-assigned to department: {assigned_dept.value}")
+    add_ml_debug_log(
+        component="issues_api",
+        operation="department_assignment",
+        message="Department assigned from AI tags",
+        details={"department": assigned_dept.value, "tags": gemini_result.get("tags", [])},
+    )
 
     # 10. Save to DB with Cloudinary URL and tracking token
     new_issue = crud_issue.create_issue(
@@ -115,6 +162,12 @@ async def create_issue(
         lon=lon,
         department=assigned_dept,
         citizen_token=tracking_token,
+    )
+    add_ml_debug_log(
+        component="issues_api",
+        operation="create_issue",
+        message="Issue saved to database",
+        details={"issue_id": new_issue.id, "department": assigned_dept.value},
     )
 
     # 11. Add to Faiss Index for future searches
@@ -158,6 +211,20 @@ async def create_issue(
         notify_new_issue(new_issue)
     except Exception as e:
         print(f"Email notification failed: {e}")
+        add_ml_debug_log(
+            component="issues_api",
+            operation="notify_new_issue",
+            level="ERROR",
+            message="Department email notification failed",
+            details={"issue_id": new_issue.id, "error": str(e)},
+        )
+
+    add_ml_debug_log(
+        component="issues_api",
+        operation="create_issue",
+        message="Issue creation finished",
+        details={"issue_id": new_issue.id, "duplicate_of": duplicate_of},
+    )
 
     # Return response with tracking token
     return IssueCreateResponse.from_issue(new_issue, tracking_token, duplicate_of)
@@ -286,10 +353,23 @@ async def pre_check_duplicate(
                matched_issue_title?, matched_issue_status?,
                matched_thumbnail_url? }
     """
+    add_ml_debug_log(
+        component="issues_api",
+        operation="pre_check_duplicate",
+        message="Duplicate pre-check started",
+        details={"latitude": body.latitude, "longitude": body.longitude},
+    )
+
     # Decode the base64 image to a temp file
     try:
         image_data = base64.b64decode(body.image_base64)
     except Exception:
+        add_ml_debug_log(
+            component="issues_api",
+            operation="pre_check_duplicate",
+            level="ERROR",
+            message="Invalid base64 payload",
+        )
         raise HTTPException(status_code=400, detail="Invalid base64 image data")
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", dir=TEMP_DIR, delete=False) as tmp:
@@ -311,12 +391,34 @@ async def pre_check_duplicate(
     # Visual similarity via Faiss (read-only search — no add)
     visual_score: float = 0.0
     visual_match_id: Optional[int] = None
-    similar = faiss_manager.search_similar(embedding, threshold=0.75, k=1)
+    # Use a permissive threshold here so we can show the best available similarity
+    # even when it is low, instead of defaulting to 0.0 all the time.
+    similar = faiss_manager.search_similar(embedding, threshold=-1.0, k=1)
     if similar:
         visual_match_id, visual_score = similar[0]
 
     # Spatial duplicates within 50 m
     nearby = find_nearby_issues(db, body.latitude, body.longitude, radius_meters=50)
+
+    # Fallback: if Faiss has no match (e.g., stale/empty index), compare against nearby
+    # issue images directly so pre-check still gives meaningful signal.
+    if visual_match_id is None and nearby:
+        best_issue = None
+        best_score = -1.0
+        for issue in nearby:
+            if not issue.image_url:
+                continue
+            candidate_embedding = clip_service.get_embedding(issue.image_url)
+            if candidate_embedding is None:
+                continue
+            score = float(np.dot(embedding, candidate_embedding))
+            if score > best_score:
+                best_score = score
+                best_issue = issue
+        if best_issue is not None:
+            visual_match_id = best_issue.id
+            visual_score = best_score
+
     # find_nearby_issues returns issues within the radius but doesn't expose exact distances.
     # Return None to indicate "within 50 m" rather than an inaccurate 0.0.
     spatial_distance_m: Optional[float] = None
@@ -325,6 +427,9 @@ async def pre_check_duplicate(
     matched_issue = None
     if visual_match_id:
         matched_issue = crud_issue.get_issue(db, issue_id=visual_match_id)
+    elif nearby:
+        # Provide contextual issue details for spatial-only matches.
+        matched_issue = nearby[0]
 
     # Determine score label
     if visual_score >= 0.92:
@@ -335,8 +440,30 @@ async def pre_check_duplicate(
         score_label = "🟢 Low — likely a new issue"
 
     # Ensure this is always a strict bool, never a list/object from `or nearby`.
-    is_likely_duplicate = visual_score >= 0.92 and (
-        spatial_distance_m is not None or bool(nearby)
+    is_spatial_match = bool(nearby)
+    is_visual_moderate = visual_score >= 0.75
+    is_visual_strong = visual_score >= 0.92
+    is_likely_duplicate = (is_visual_strong and is_spatial_match) or (
+        is_visual_moderate and is_spatial_match
+    )
+
+    if is_likely_duplicate:
+        verdict = "⚠️ Likely Duplicate"
+    elif is_spatial_match:
+        verdict = "🟠 Nearby Existing Issue — please review"
+    else:
+        verdict = "✅ Likely New Issue"
+
+    add_ml_debug_log(
+        component="issues_api",
+        operation="pre_check_duplicate",
+        message="Duplicate pre-check completed",
+        details={
+            "visual_score": round(visual_score, 4),
+            "nearby_count": len(nearby),
+            "is_likely_duplicate": is_likely_duplicate,
+            "matched_issue_id": matched_issue.id if matched_issue else None,
+        },
     )
 
     return {
@@ -345,7 +472,7 @@ async def pre_check_duplicate(
         "spatial_distance_m": spatial_distance_m,
         "nearby_count": len(nearby),
         "is_likely_duplicate": is_likely_duplicate,
-        "verdict": "⚠️ Likely Duplicate" if is_likely_duplicate else "✅ Likely New Issue",
+        "verdict": verdict,
         "matched_issue_id": matched_issue.id if matched_issue else None,
         "matched_issue_title": matched_issue.caption if matched_issue else None,
         "matched_issue_status": matched_issue.status if matched_issue else None,

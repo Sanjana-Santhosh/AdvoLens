@@ -17,7 +17,7 @@ class Notification(Base):
     __tablename__ = "notifications"
     
     id = Column(Integer, primary_key=True, index=True)
-    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False)
+    issue_id = Column(Integer, ForeignKey("issues.id", ondelete="CASCADE"), nullable=False)
     type = Column(String, nullable=False)  # Store enum value as string
     message = Column(String, nullable=False)
     is_read = Column(Boolean, default=False)

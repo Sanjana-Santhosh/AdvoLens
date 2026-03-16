@@ -40,6 +40,10 @@ class Issue(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    notifications = relationship("Notification", back_populates="issue")
+    notifications = relationship(
+        "Notification",
+        back_populates="issue",
+        cascade="all, delete-orphan",
+    )
     votes = relationship("Vote", back_populates="issue", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="issue", cascade="all, delete-orphan")
