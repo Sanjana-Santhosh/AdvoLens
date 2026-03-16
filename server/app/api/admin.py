@@ -15,7 +15,7 @@ from app.models.issue import Issue
 from app.models.engagement import Vote, Comment
 from app.models.notification import Notification
 from app.ml.clip_service import clip_service
-from app.ml.faiss_manager import faiss_manager
+from app.ml.faiss_manager import INDEX_FILE, METADATA_FILE, faiss_manager
 from app.core.ml_debug_log import (
     MAX_ML_DEBUG_LOGS,
     clear_ml_debug_logs,
@@ -58,6 +58,8 @@ class DeptEmailRequest(BaseModel):
 class ClearDbRequest(BaseModel):
     confirm_phrase: str
     include_users: bool = True
+    preserve_seeded_data: bool = True
+    purge_vector_files: bool = True
 
 
 maintenance_basic = HTTPBasic(auto_error=False)
@@ -470,8 +472,8 @@ def clear_database_data(
 ):
     """
     Danger zone: clears application data from DB.
-    Seeded users/issues are preserved.
     Requires confirm_phrase == "DELETE ALL DATA".
+    Set preserve_seeded_data=false for a true full wipe.
     """
     _require_super_admin(current_user)
 
@@ -484,25 +486,29 @@ def clear_database_data(
     deleted_counts: dict[str, int] = {}
     preserved_counts: dict[str, int] = {}
     try:
-        seeded_issues_query = db.query(Issue).filter(
-            or_(
-                Issue.citizen_token.like("demo_token_%"),
-                Issue.title.in_(SEEDED_ISSUE_TITLES),
-            )
-        )
-        seeded_issue_ids = [issue.id for issue in seeded_issues_query.all()]
-        preserved_counts["issues"] = len(seeded_issue_ids)
-
         comments_query = db.query(Comment)
         votes_query = db.query(Vote)
         notifications_query = db.query(Notification)
         issues_query = db.query(Issue)
 
-        if seeded_issue_ids:
-            comments_query = comments_query.filter(~Comment.issue_id.in_(seeded_issue_ids))
-            votes_query = votes_query.filter(~Vote.issue_id.in_(seeded_issue_ids))
-            notifications_query = notifications_query.filter(~Notification.issue_id.in_(seeded_issue_ids))
-            issues_query = issues_query.filter(~Issue.id.in_(seeded_issue_ids))
+        seeded_issue_ids: list[int] = []
+        if body.preserve_seeded_data:
+            seeded_issues_query = db.query(Issue).filter(
+                or_(
+                    Issue.citizen_token.like("demo_token_%"),
+                    Issue.title.in_(SEEDED_ISSUE_TITLES),
+                )
+            )
+            seeded_issue_ids = [issue.id for issue in seeded_issues_query.all()]
+            preserved_counts["issues"] = len(seeded_issue_ids)
+
+            if seeded_issue_ids:
+                comments_query = comments_query.filter(~Comment.issue_id.in_(seeded_issue_ids))
+                votes_query = votes_query.filter(~Vote.issue_id.in_(seeded_issue_ids))
+                notifications_query = notifications_query.filter(~Notification.issue_id.in_(seeded_issue_ids))
+                issues_query = issues_query.filter(~Issue.id.in_(seeded_issue_ids))
+        else:
+            preserved_counts["issues"] = 0
 
         deleted_counts["comments"] = comments_query.count()
         comments_query.delete(synchronize_session=False)
@@ -517,13 +523,21 @@ def clear_database_data(
         issues_query.delete(synchronize_session=False)
 
         if body.include_users:
-            users_query = db.query(User).filter(~User.email.in_(SEEDED_USER_EMAILS))
+            users_query = db.query(User)
+            if body.preserve_seeded_data:
+                users_query = users_query.filter(~User.email.in_(SEEDED_USER_EMAILS))
             deleted_counts["users"] = users_query.count()
             users_query.delete(synchronize_session=False)
-            preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+            if body.preserve_seeded_data:
+                preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+            else:
+                preserved_counts["seeded_users"] = 0
         else:
             deleted_counts["users"] = 0
-            preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+            if body.preserve_seeded_data:
+                preserved_counts["seeded_users"] = db.query(User).filter(User.email.in_(SEEDED_USER_EMAILS)).count()
+            else:
+                preserved_counts["seeded_users"] = 0
 
         db.commit()
     except Exception as exc:
@@ -534,13 +548,31 @@ def clear_database_data(
         )
 
     # Keep search/index state aligned with cleared DB.
-    faiss_manager.reset_index(persist=True)
+    faiss_manager.reset_index(persist=False)
+
+    purged_vector_files: list[str] = []
+    if body.purge_vector_files:
+        for vector_file in (INDEX_FILE, METADATA_FILE):
+            if os.path.exists(vector_file):
+                os.remove(vector_file)
+                purged_vector_files.append(vector_file)
+    else:
+        # Persist an empty index when disk purge is not requested.
+        faiss_manager.save_index()
+
     cfg.clear_mock_mails()
+
+    note = "Seeded users and seeded sample issues were preserved"
+    if not body.preserve_seeded_data:
+        note = "All records cleared (no seeded data preserved)"
 
     return {
         "message": "Database data cleared",
-        "note": "Seeded users and seeded sample issues were preserved",
+        "note": note,
         "include_users": body.include_users,
+        "preserve_seeded_data": body.preserve_seeded_data,
+        "purge_vector_files": body.purge_vector_files,
+        "purged_vector_files": purged_vector_files,
         "deleted": deleted_counts,
         "preserved": preserved_counts,
     }
