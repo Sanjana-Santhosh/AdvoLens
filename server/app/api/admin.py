@@ -114,7 +114,7 @@ def reassign_issue(
     return issue
 
 
-@router.delete("/{issue_id}")
+@router.delete("/{issue_id:int}")
 def delete_issue(
     issue_id: int,
     db: Session = Depends(get_db),

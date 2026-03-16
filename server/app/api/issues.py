@@ -334,7 +334,10 @@ async def pre_check_duplicate(
     else:
         score_label = "🟢 Low — likely a new issue"
 
-    is_likely_duplicate = visual_score >= 0.92 and (spatial_distance_m is not None or nearby)
+    # Ensure this is always a strict bool, never a list/object from `or nearby`.
+    is_likely_duplicate = visual_score >= 0.92 and (
+        spatial_distance_m is not None or bool(nearby)
+    )
 
     return {
         "visual_score": round(visual_score, 4),
