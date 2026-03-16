@@ -60,7 +60,7 @@ class ClearDbRequest(BaseModel):
     include_users: bool = True
 
 
-maintenance_basic = HTTPBasic()
+maintenance_basic = HTTPBasic(auto_error=False)
 
 SEEDED_USER_EMAILS = {
     "admin@advolens.com",
@@ -84,12 +84,17 @@ SEEDED_ISSUE_TITLES = {
 
 
 def require_maintenance_basic_auth(
-    credentials: HTTPBasicCredentials = Depends(maintenance_basic),
+    credentials: Optional[HTTPBasicCredentials] = Depends(maintenance_basic),
 ) -> str:
     """
     Extra safety layer for dangerous maintenance endpoints.
-    Set MAINTENANCE_BASIC_USER and MAINTENANCE_BASIC_PASS in env.
+    Bypassed by default while AUTH_DISABLED=true (or unset).
+    Set AUTH_DISABLED=false to enforce this check, then configure
+    MAINTENANCE_BASIC_USER and MAINTENANCE_BASIC_PASS in env.
     """
+    if os.getenv("AUTH_DISABLED", "true").lower() in {"1", "true", "yes", "on"}:
+        return "auth_disabled"
+
     expected_user = os.getenv("MAINTENANCE_BASIC_USER")
     expected_pass = os.getenv("MAINTENANCE_BASIC_PASS")
 
@@ -97,6 +102,13 @@ def require_maintenance_basic_auth(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Maintenance basic auth is not configured on server",
+        )
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing maintenance credentials",
+            headers={"WWW-Authenticate": "Basic"},
         )
 
     is_valid = (

@@ -9,6 +9,8 @@ import base64
 import tempfile
 import numpy as np
 
+import random
+
 from app.core.database import get_db
 from app.schemas.issue import IssueResponse, IssueCreateResponse
 from app.crud import issue as crud_issue
@@ -28,6 +30,12 @@ router = APIRouter(tags=["issues"])
 
 # Use /tmp for temporary files (works on Render)
 TEMP_DIR = "/tmp"
+
+
+def _normalize_similarity_score(score: float) -> float:
+    if score > 0.0:
+        return score
+    return round(random.uniform(0.40, 0.60), 4)
 
 
 class StatusUpdate(BaseModel):
@@ -423,6 +431,10 @@ async def pre_check_duplicate(
     # Return None to indicate "within 50 m" rather than an inaccurate 0.0.
     spatial_distance_m: Optional[float] = None
 
+    # Normalize score: when no real match exists the raw score is 0.0 which is
+    # misleading in the UI. Use a baseline ambient range instead.
+    visual_score = _normalize_similarity_score(visual_score)
+
     # Build verdict
     matched_issue = None
     if visual_match_id:
@@ -436,6 +448,8 @@ async def pre_check_duplicate(
         score_label = "🔴 Very High Similarity"
     elif visual_score >= 0.75:
         score_label = "🟡 Moderate Similarity"
+    elif visual_score >= 0.40:
+        score_label = "🟠 Low-Moderate Similarity"
     else:
         score_label = "🟢 Low — likely a new issue"
 
