@@ -39,7 +39,7 @@ export default function IssueDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [userVote, setUserVote] = useState<string | null>(null);
 
-  
+  useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -188,9 +188,9 @@ export default function IssueDetailPage() {
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-6">
           {/* Image */}
           <img 
-            src={issue.image_url.startsWith('http') ? issue.image_url : `${API_URL}${issue.image_url}`}
+            src={getImageUrl(issue.image_url)}
             alt="Issue"
-            classgetImageUrl(issue.image_url)
+            className="w-full h-72 object-cover"
           />
           
           {/* Content */}

@@ -9,8 +9,10 @@ const withPWA = require("next-pwa")({
 });
 
 const nextConfig: NextConfig = {
-  // Use empty turbopack config for PWA webpack compatibility
-  turbopack: {},
+  // Explicitly pin Turbopack root to this app to avoid parent lockfile detection.
+  turbopack: {
+    root: process.cwd(),
+  },
   // Allow local network access for mobile testing
   allowedDevOrigins: ["http://192.168.1.37:3000", "http://192.168.1.*:3000"],
   images: {
